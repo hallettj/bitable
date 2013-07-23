@@ -4,9 +4,15 @@ define('kademlia/dht', ['./id'], function(Id) {
     function DHT(opts) {
         opts = extend({}, defaults, opts);
 
-        var id = opts.id || Id.makeId(idSize)
-          , routeTable = RouteTable(id, idSize, opts.bucketSize)
+        var self = opts.id || Id.random(idSize)
+          , routeTable = RouteTable(self, idSize, opts.bucketSize)
         ;
+
+        function closestPeer(id) {
+            return routeTable.getBucket(id).sort(function(a, b) {
+                return Id.compare(dist(id, a), dist(id, b));
+            })[0];
+        }
     }
 
     function RouteTable(self, idSize, bucketSize) {
@@ -16,14 +22,15 @@ define('kademlia/dht', ['./id'], function(Id) {
 
         addBucket();
 
-        function insert(id, peer) {
-            var res    = getBucket(id)
+        function insert(peer) {
+            var id     = peer.id
+              , res    = getBucket(id)
               , bucket = res[0]
               , pos    = res[1];
             if (bucket.length >= bucketSize) {
-                if (pos === buckets.length - 1 && pos < bits) {
+                if (pos === buckets.length - 1 && pos < bits - 1) {
                     split(bucket);
-                    return insert(id, peer);
+                    return insert(peer);
                 }
             }
             else {
@@ -44,13 +51,11 @@ define('kademlia/dht', ['./id'], function(Id) {
             var oldBucket = buckets.pop();
             addBucket();
             addBucket();
-            oldBucket.forEach(function(peer) {
-                insert(peer.id, peer);
-            });
+            oldBucket.forEach(insert);
         }
 
         function addBucket() {
-            buckets.push(new Bucket());
+            buckets.push(Bucket());
         }
 
         return {
@@ -62,6 +67,12 @@ define('kademlia/dht', ['./id'], function(Id) {
         var bucket = [];
         bucket.lastChange = new Date();
         return bucket;
+    }
+
+    function Peer() {
+        var peer = {};
+        peer.status = 'good';
+        return peer;
     }
 
     var defaults = {

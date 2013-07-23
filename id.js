@@ -1,7 +1,7 @@
 define('kademlia/id', function() {
     'use strict';
 
-    function makeId(sizeInBytes) {
+    function random(sizeInBytes) {
         var buf = new Uint8Array(sizeInBytes || 20);
         crypto.getRandomValues(buf);
         return buf;
