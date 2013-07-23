@@ -1,0 +1,6 @@
+{
+    'globals': [
+        'crypto'
+    ],
+    'laxcomma': true
+}
