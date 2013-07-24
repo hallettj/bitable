@@ -2,7 +2,6 @@
  * when: https://github.com/cujojs/when
  */
 
-// TODO: maybe rename this to /messageHandler or something
 define('kademlia/bus', ['peerjs', 'when', 'bacon'], function(peerjs, when, Bacon) {
 
     function Bus(id, brokerInfo) {
@@ -10,14 +9,14 @@ define('kademlia/bus', ['peerjs', 'when', 'bacon'], function(peerjs, when, Bacon
           , connections = {};
 
         peer.on('connection', function(conn) {
-            connections[conn.peer.id] = conn;  // TODO: clean up previous connection
+            connections[conn.peer.id] = conn;  // TODO: clean up previous connection?
             conn.on('data', function(data) {
-                react(data);
+                react(conn, data);
             });
         });
 
         function connect(otherId, brokerInfo) {
-            return getBroker(brokerInfo).then(function(peer) {
+            return withBroker(brokerInfo, function(peer) {
                 return when.promise(function(resolve, reject) {
                     var conn = peer.connect(otherId, {
                         reliable: false
@@ -40,11 +39,24 @@ define('kademlia/bus', ['peerjs', 'when', 'bacon'], function(peerjs, when, Bacon
             });
         }
 
-        function getBroker(brokerInfo) {
-            // TODO: reuse broker connections where possible
-            return when.resolve(
-                new peerjs.Peer(id, brokerInfo);
-            );
+        function getConnection(id) {
+            return when.resolve(connections[id]);
+            // TODO: connect to peer if not already connected
+            // TODO: this should go through routing table?
+        }
+
+        // TODO: reuse broker connections where convenient
+        function withBroker(brokerInfo, fn) {
+            return when.promise(function(resolve, reject, notify) {
+                var peer = new peerjs.Peer(id, brokerInfo);
+                peer.on('error', reject);
+
+                var promise = fn(peer);
+                promise.then(resolve, reject, notify);
+                promise.ensure(function() {
+                    peer.disconnect();
+                });
+            });
         }
 
         function send(recipient, msgType, payload) {
@@ -53,22 +65,28 @@ define('kademlia/bus', ['peerjs', 'when', 'bacon'], function(peerjs, when, Bacon
             });
         }
 
-        function getConnection(id) {
-            return when.resolve(connections[id]);
-            // TODO: connect to peer if not already connected
-            // TODO: this should go through routing table?
-        }
-
         return {
-            connect: connect
+            connect:    connect,
+            disconnect: disconnect
         };
     }
 
-    function react(msg) {
-        if (msg.type === 'ping') {
-            // TODO
+    function react(conn, msg) {
+        if (msg.y === 'q' && msg.q === 'ping') {
+            sendPong(conn, msg);
         }
-        // TODO
+    };
+
+    // TODO: message formats may represent enough logic for another
+    // module
+    function sendPong(conn, msg) {
+        if (msg.a && msg.a.id && msg.t) {
+            conn.send({
+                t: msg.t,
+                y: 'r',
+                r: { id: selfId }
+            });
+        }
     };
 
 });
