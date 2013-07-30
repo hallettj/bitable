@@ -1,99 +1,49 @@
-define('kademlia/dht', ['./id'], function(Id) {
+define('kademlia/dht', [
+    './id',
+    './route_table',
+    './bus',
+    './message',
+    'lodash'
+], function(Id, RouteTable, Bus, m, _) {
     'use strict';
 
     function DHT(opts) {
-        opts = extend({}, defaults, opts);
+        opts = _.assign({}, defaults, opts);
 
-        var self = opts.id || Id.random(idSize)
-          , routeTable = RouteTable(self, idSize, opts.bucketSize)
+        var idSelf = opts.id || Id.random(opts.idSize)
+          , routeTable = new RouteTable(idSelf, opts.idSize, opts.bucketSize)
+          , bus        = new Bus(idSelf, opts.brokerInfo)
         ;
 
-        function closestPeer(id) {
-            return routeTable.getBucket(id).sort(function(a, b) {
-                return Id.compare(dist(id, a), dist(id, b));
-            })[0];
-        }
+        bus.onValue(function(event) {
+        });
+
+        bus.closeEvents.onValue(function(id) {
+            // TODO: attempt to reconnect?
+            routeTable.remove(id);
+        });
+
+        // bootstrap
+        opts.peers.forEach(routeTable.insert);
+        opts.peers.forEach(function(peer) {
+            send(m.findNode, peer);
+        });
+
     }
 
-    function RouteTable(self, idSize, bucketSize) {
-        var bits    = idSize * 8
-          , buckets = []
-        ;
-
-        addBucket();
-
-        function insert(peer) {
-            var id     = peer.id
-              , res    = getBucket(id)
-              , bucket = res[0]
-              , pos    = res[1];
-            if (bucket.length >= bucketSize) {
-                if (pos === buckets.length - 1 && pos < bits - 1) {
-                    split(bucket);
-                    return insert(peer);
-                }
-            }
-            else {
-                bucket.push(peer);
-                bucket.lastChange = new Date();
-            }
-        }
-
-        function getBucket(id) {
-            var dist = Id.dist(id, self)
-              , ord  = Id.sigBit(dist)
-              , pos  = bits - ord;
-              , actualPos = Math.min(pos, buckets.length - 1);
-            return [buckets[actualPos], actualPos];
-        }
-
-        function split() {
-            var oldBucket = buckets.pop();
-            addBucket();
-            addBucket();
-            oldBucket.forEach(insert);
-        }
-
-        function addBucket() {
-            buckets.push(Bucket());
-        }
-
-        return {
-            insert: insert;
-        };
-    }
-
-    function Bucket() {
-        var bucket = [];
-        bucket.lastChange = new Date();
-        return bucket;
-    }
-
-    function Peer() {
-        var peer = {};
+    function Peer(id) {
+        var peer = { id: id };
         peer.status = 'good';
         return peer;
     }
 
     var defaults = {
         id: undefined,
+        peers: undefined,  // array of starting peers
+        brokerInfo: undefined,
         idSize: 20 /* bytes */,
-        prefix: 4,  // TODO: 4? really?
         bucketSize: 8
     };
-
-    function extend() {
-        var args   = Array.prototype.slice.call(arguments)
-          , target = args.shift();
-        args.forEach(function(arg) {
-            Object.keys(arg).forEach(function(k) {
-                if (typeof k !== 'undefined') {
-                    target[k] = arg[k];
-                }
-            });
-        });
-        return target;
-    }
 
     return DHT;
 });
