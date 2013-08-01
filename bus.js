@@ -7,11 +7,12 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
 
     function Bus(id, brokerInfo) {
         var peer = new peerjs.Peer(id, brokerInfo)
-          , connections = {}
+          , connections  = {}
+          , transactions = {}
         ;
 
-        var messages    = new Bacon.Bus();
-        var closeEvents = new Bacon.Bus();
+        var messages     = new Bacon.Bus();
+        var closeEvents  = new Bacon.Bus();
 
         peer.on('connection', function(conn) {
             // TODO: clean up previous connection?
@@ -20,6 +21,18 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
         // TODO: attempt to reconnect when connection has been lost
         // TODO: make errors loggable
         // TODO: API to shut down all connections
+
+        function send(peer, message) {
+            var conn = connections[peer.id];
+            if (!conn) {
+                return connect(peer.id, peer.brokerInfo).then(function() {
+                    return send(peer, message);
+                });
+            }
+            return transaction(function(id) {
+                conn.send(m.build(message, id));
+            });
+        }
 
         function initConnection(conn) {
             var id = conn.peer.id;
@@ -91,13 +104,29 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
             });
         }
 
-        function send(recipient, msgType, payload) {
-            getConnection(recipient).then(function(conn) {
-                conn.send({ type: msgType, payload: payload });
-            });
+        function transaction(fn) {
+            var id = mkTransactionId()
+              , deferred = when.defer();
+            transactions[id] = deferred;
+            fn(id);
+            return deferred.promise;
+        }
+
+        function mkTransactionId() {
+            var id = randChar() + randChar();
+            if (transactions.hasOwnProperty(id)) {
+                return mkTransactionId();
+            }
+            return id;
+        }
+
+        function randChar() {
+            var x = Math.floor(Math.random() * 26);
+            return String.fromCharCode(97 + x);
         }
 
         return {
+            send:        send,
             connect:     connect,
             disconnect:  disconnect,
             messages:    messages,

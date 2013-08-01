@@ -19,16 +19,13 @@ define('kademlia/dht', [
         });
 
         bus.closeEvents.onValue(function(id) {
-            // TODO: attempt to reconnect?
+            // TODO: attempt to reconnect?  handle that in bus?
             routeTable.remove(id);
         });
 
         // bootstrap
         opts.peers.forEach(routeTable.insert);
-        opts.peers.forEach(function(peer) {
-            send(m.findNode, peer);
-        });
-
+        bus.send(opts.peers[0], m.find_node(idSelf, idSelf));
     }
 
     function Peer(id) {
