@@ -20,6 +20,13 @@ define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
         };
     }
 
+    function response(params) {
+        return {
+            y: 'r',
+            r: params
+        };
+    }
+
     function build(message, transactionId) {
         return b.encode(_.assign({
             t: transactionId
@@ -29,6 +36,8 @@ define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
     return {
         decode:    b.decode,
         encode:    b.encode,
-        find_node: find_node
+        find_node: find_node,
+        query:     query,
+        response:  response
     };
 });

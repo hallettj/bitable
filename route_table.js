@@ -37,9 +37,9 @@ define('kademlia/route_table', ['./id'], function(Id) {
         }
 
         function closest(id) {
-            return getBucket(id).sort(function(a, b) {
+            return getBucket(id).slice().sort(function(a, b) {
                 return Id.compare(Id.dist(id, a), Id.dist(id, b));
-            })[0];
+            });
         }
 
         function getBucket(id) {

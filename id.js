@@ -51,6 +51,10 @@ define('kademlia/id', function() {
         return 0;
     }
 
+    function equals(a, b) {
+        return compare(a, b) === 0;
+    }
+
     function sum(a, b) {
         if (a.byteLength !== b.byteLength) {
             throw "Cannot sum values with different bit lengths.";
@@ -74,6 +78,8 @@ define('kademlia/id', function() {
         dist:    dist,
         xor:     xor,
         compare: compare,
-        sum:     sum
+        equals:  equals,
+        sum:     sum,
+        sigBit:  sigBit
     };
 });

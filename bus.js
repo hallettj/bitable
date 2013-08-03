@@ -22,15 +22,50 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
         // TODO: make errors loggable
         // TODO: API to shut down all connections
 
-        function send(peer, message) {
+        /**
+         * Send a message using an existing connection; or establish
+         * a short-lived connection if necessary.
+         *
+         * TODO: limit to short-lived connection!
+         */
+        function query(peer, message) {
             var conn = connections[peer.id];
             if (!conn) {
                 return connect(peer.id, peer.brokerInfo).then(function() {
-                    return send(peer, message);
+                    return query(peer, message);
                 });
             }
+
             return transaction(function(id) {
-                conn.send(m.build(message, id));
+                dispatch(conn, id, message);
+            });
+        }
+
+        function dispatch(conn, transId, message) {
+            conn.send(m.build(message, id));
+        }
+
+        /**
+         * Establish a long-lived connection.
+         */
+        function connect(peer) {
+            return withBroker(peer.brokerInfo, function(broker) {
+                return when.promise(function(resolve, reject) {
+                    var conn = broker.connect(peer.id, {
+                        reliable: false
+                    });
+                    initConnection(conn);
+                    conn.on('open', function() {
+                        resolve(conn);
+                    });
+                    conn.on('error', reject);
+                });
+            });
+        }
+
+        function disconnect(otherId) {
+            getConnection(otherId).then(function(conn) {
+                conn.close();
             });
         }
 
@@ -42,9 +77,13 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
                     connections[id] = conn;
                 })
                 .on('data', function(data) {
-                    subscriber(new Bacon.Next(function() {
-                        m.decode(data);
-                    }));
+                    var msg = m.decode(data);
+                    if (!react(conn, msg)) {
+                        // Emit events only for incoming queries
+                        subscriber(new Bacon.Next([msg, function(resp) {
+                            dispatch(conn, msg.t, resp);
+                        }]));
+                    }
                 })
                 .on('error', function(err) {
                     subscriber(new Bacon.Error(err));
@@ -63,25 +102,14 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
             messages.plug(stream);
         }
 
-        function connect(otherId, brokerInfo) {
-            return withBroker(brokerInfo, function(peer) {
-                return when.promise(function(resolve, reject) {
-                    var conn = peer.connect(otherId, {
-                        reliable: false
-                    });
-                    initConnection(conn);
-                    conn.on('open', function() {
-                        resolve(conn);
-                    });
-                    conn.on('error', reject);
-                });
-            });
-        }
-
-        function disconnect(otherId) {
-            getConnection(otherId).then(function(conn) {
-                conn.close();
-            });
+        function react(message) {
+            var isResp   = message.y === 'r' && message.t;
+            var deferred = isResp && transactions[message.t];
+            if (deferred) {
+                deferred.resolve(message);
+                delete transactions[message.t];
+            }
+            return !!deferred;
         }
 
         function getConnection(id) {
@@ -91,6 +119,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
         }
 
         // TODO: reuse broker connections where convenient
+        // TODO: create new module to manage broker pool
         function withBroker(brokerInfo, fn) {
             return when.promise(function(resolve, reject, notify) {
                 var peer = new peerjs.Peer(id, brokerInfo);
@@ -126,7 +155,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, pee
         }
 
         return {
-            send:        send,
+            query:       query,
             connect:     connect,
             disconnect:  disconnect,
             messages:    messages,
