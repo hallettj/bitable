@@ -38,6 +38,7 @@ define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
         encode:    b.encode,
         find_node: find_node,
         query:     query,
-        response:  response
+        response:  response,
+        build:     build
     };
 });

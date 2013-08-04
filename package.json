@@ -1,0 +1,37 @@
+{
+  "name": "peer",
+  "version": "0.0.1",
+  "description": "In-browser distributed hashtable (DHT)",
+  "homepage": "https://github.com/hallettj/peer",
+  "author": {
+    "name": "Jesse Hallett",
+    "email": "jesse@sitr.us",
+    "url": "http://sitr.us/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/hallettj/peer.git"
+  },
+  "bugs": "https://github.com/hallettj/peer/issues",
+  "licenses": [
+    {
+      "type": "Apache-2.0",
+      "url": "https://github.com/hallettj/peer/blob/master/LICENSE-Apache-2.0"
+    }
+  ],
+  "engines": {
+    "node": ">= 0.8.0"
+  },
+  "scripts": {
+    "test": "grunt test"
+  },
+  "devDependencies": {
+    "grunt": "~0.4.0",
+    "grunt-contrib-concat": "~0.3.0",
+    "grunt-contrib-uglify": "~0.2.2",
+    "grunt-contrib-qunit": "~0.2.2",
+    "grunt-contrib-jshint": "~0.6.2",
+    "grunt-contrib-watch": "~0.5.1",
+    "grunt-contrib-connect": "~0.3.0"
+  }
+}

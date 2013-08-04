@@ -74,7 +74,7 @@ define('kademlia/id', function() {
     }
 
     return {
-        makeId:  makeId,
+        random:  random,
         dist:    dist,
         xor:     xor,
         compare: compare,

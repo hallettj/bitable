@@ -124,11 +124,11 @@ define('kademlia/dht', [
         };
     }
 
-    function Peer(id) {
-        var peer = { id: id };
-        peer.status = 'good';
-        return peer;
-    }
+    //function Peer(id) {
+    //    var peer = { id: id };
+    //    peer.status = 'good';
+    //    return peer;
+    //}
 
     var defaults = {
         id: undefined,
