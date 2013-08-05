@@ -1,8 +1,8 @@
-define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, peerjs, when, Bacon) {
+define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Peer, when, Bacon) {
     'use strict';
 
     function Bus(id, brokerInfo) {
-        var peer = new peerjs.Peer(id, brokerInfo)
+        var peer = new Peer(id, brokerInfo)
           , connections  = {}
           , transactions = {}
         ;
@@ -27,25 +27,26 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, pee
         function query(peer, message) {
             var conn = connections[peer.id];
             if (!conn) {
-                return connect(peer.id, peer.brokerInfo).then(function() {
+                console.log('not connected yet; connecting now', peer.id);
+                return connect(peer).then(function() {
                     return query(peer, message);
                 });
             }
 
-            return transaction(function(id) {
-                dispatch(conn, id, message);
+            return transaction(function(transId) {
+                dispatch(conn, transId, message);
             });
         }
 
         function dispatch(conn, transId, message) {
-            conn.send(m.build(message, id));
+            conn.send(m.build(message, transId));
         }
 
         /**
          * Establish a long-lived connection.
          */
         function connect(peer) {
-            return withBroker(peer.brokerInfo, function(broker) {
+            return withBroker(peer, function(broker) {
                 return when.promise(function(resolve, reject) {
                     var conn = broker.connect(peer.id, {
                         reliable: false
@@ -66,7 +67,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, pee
         }
 
         function initConnection(conn) {
-            var id = conn.peer.id;
+            var id = conn.peer;
             var stream = new Bacon.EventStream(function(subscriber) {
                 conn
                 .on('open', function() {
@@ -114,18 +115,28 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, pee
             // TODO: this should go through routing table?
         }
 
-        // TODO: reuse broker connections where convenient
-        // TODO: create new module to manage broker pool
+        //// TODO: reuse broker connections where convenient
+        //// TODO: create new module to manage broker pool
+        //function withBroker(brokerInfo, fn) {
+        //    return when.promise(function(resolve, reject, notify) {
+        //        var peer = new Peer(id, brokerInfo);
+        //        peer.on('error', reject);
+
+        //        var promise = fn(peer);
+        //        promise.then(resolve, reject, notify);
+        //        promise.ensure(function() {
+        //            peer.disconnect();
+        //        });
+        //    });
+        //}
+
+        // TODO: implement real broker functionality
         function withBroker(brokerInfo, fn) {
             return when.promise(function(resolve, reject, notify) {
-                var peer = new peerjs.Peer(id, brokerInfo);
+                // use bus-wide peer reference
                 peer.on('error', reject);
-
                 var promise = fn(peer);
                 promise.then(resolve, reject, notify);
-                promise.ensure(function() {
-                    peer.disconnect();
-                });
             });
         }
 

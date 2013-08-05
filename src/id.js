@@ -1,10 +1,10 @@
-define('kademlia/id', function() {
+define('kademlia/id', function(StringView) {
     'use strict';
 
     function random(sizeInBytes) {
         var buf = new Uint8Array(sizeInBytes || 20);
         crypto.getRandomValues(buf);
-        return buf;
+        return encode(buf);
     }
 
     function dist(a, b) {
@@ -12,6 +12,7 @@ define('kademlia/id', function() {
     }
 
     function xor(a, b) {
+        a = decode(a); b = decode(b);
         if (a.byteLength !== b.byteLength) {
             throw "Cannot xor values with different bit lengths.";
         }
@@ -19,11 +20,12 @@ define('kademlia/id', function() {
         for (var i = 0; i < a.length; i += 1) {
             result[i] = a[i] ^ b[i];
         }
-        return result;
+        return encode(result);
     }
 
     /* Returns position of the most significant bit with a 1 value. */
     function sigBit(a) {
+        a = decode(a);
         var l, len = a.length;
         for (var i = 0; i <= len; i += 1) {
             l = Math.round(log(a[i]));
@@ -40,6 +42,7 @@ define('kademlia/id', function() {
     }
 
     function compare(a, b) {
+        a = decode(a); b = decode(b);
         if (a.byteLength !== b.byteLength) {
             throw "Cannot compare values with different bit lengths.";
         }
@@ -56,6 +59,7 @@ define('kademlia/id', function() {
     }
 
     function sum(a, b) {
+        a = decode(a); b = decode(b);
         if (a.byteLength !== b.byteLength) {
             throw "Cannot sum values with different bit lengths.";
         }
@@ -70,7 +74,42 @@ define('kademlia/id', function() {
         if (carry !== 0) {
             throw "overflow in sum";
         }
-        return result;
+        return encode(result);
+    }
+
+    function zero(sizeInBytes) {
+        var z = new Uint8Array(sizeInBytes);
+        return encode(z);
+    }
+
+    function encode(view) {
+        //return StringView.bytesToBase64(view);
+        return bufToHex(view);
+    }
+
+    function decode(str) {
+        //return StringView.base64ToBytes(str);
+        return hexToBuf(str);
+    }
+
+    var chars = "0123456789abcdef";
+    function bufToHex(buf) {
+        var out = [], byte;
+        for (var i = 0; i < buf.length; i += 1) {
+            byte = buf[i];
+            out.push(chars[Math.floor(byte / 16)]);
+            out.push(chars[byte % 16]);
+        }
+        return out.join('');
+    }
+
+    function hexToBuf(str) {
+        var buf = new Uint8Array(str.length / 2), j;
+        for (var i = 0; i < buf.length; i += 1) {
+            j = i * 2;
+            buf[i] = (chars.indexOf(str[j]) * 16) + chars.indexOf(str[j+1]);
+        }
+        return buf;
     }
 
     return {
@@ -80,6 +119,7 @@ define('kademlia/id', function() {
         compare: compare,
         equals:  equals,
         sum:     sum,
-        sigBit:  sigBit
+        sigBit:  sigBit,
+        zero:    zero
     };
 });

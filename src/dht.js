@@ -41,12 +41,17 @@ define('kademlia/dht', [
             });
         }
 
+        function ping(peer) {
+            return bus.query(peer, m.ping(idSelf));
+        }
+
         function findNode(target) {
             return new Bacon.EventStream(function(subscriber) {
                 var startPeers = routeTable.closest(target).slice(0, alpha);
                 for (var i = 1; i < alpha; i += 1) {
                     findNode_(target, subscriber, startPeers.slice(i, i+1));
                 }
+                return function unsubscribe() {};
             });
         }
 
@@ -55,7 +60,7 @@ define('kademlia/dht', [
                 return when.reject('out of peers');
             }
 
-            return bus.send(peers[0], m.find_node(idSelf, target)).then(
+            return bus.query(peers[0], m.find_node(idSelf, target)).then(
             function(resp) {
                 var nodes = resp.r.nodes.sort(function(a, b) {
                     return Id.compare(Id.dist(target, a), Id.dist(target, b));
@@ -82,7 +87,7 @@ define('kademlia/dht', [
         //    var events = new Bacon.Bus();
         //    var peers = routeTable.closest(target).slice(0, alpha);
         //    peers.forEach(function(peer) {
-        //        return bus.send(peer, m.find_node(idSelf, idSelf));
+        //        return bus.query(peer, m.find_node(idSelf, idSelf));
         //    });
         //    return events;
         //}
@@ -90,15 +95,16 @@ define('kademlia/dht', [
         function react(incoming) {
             var msg     = incoming[0]
               , respond = incoming[1];
-            if (m.q === 'ping') {
+            if (msg.q === 'ping') {
                 reactPing(msg, respond);
             }
-            else if (m.q === 'find_node') {
+            else if (msg.q === 'find_node') {
                 reactFindNode(msg, respond);
             }
         }
 
         function reactPing(msg, respond) {
+            console.log('reactPing', msg);
             respond(m.response({
                 id: idSelf
             }));
@@ -120,7 +126,9 @@ define('kademlia/dht', [
         }
 
         return {
-            bootstrap: bootstrap
+            bootstrap: bootstrap,
+            messages:  bus.messages,
+            ping:      ping
         };
     }
 

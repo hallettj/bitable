@@ -1,6 +1,12 @@
 define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
     'use strict';
 
+    function ping(self) {
+        return query('ping', {
+            id: self
+        });
+    }
+
     function find_node(self, target) {
         return query('find_node', {
             id: self,
@@ -33,6 +39,7 @@ define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
         decode:    b.decode,
         encode:    b.encode,
         find_node: find_node,
+        ping:      ping,
         query:     query,
         response:  response,
         build:     build
