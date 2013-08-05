@@ -1,4 +1,4 @@
-define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, peerjs, when, Bacon) {
+define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, peerjs, when, Bacon) {
     'use strict';
 
     function Bus(id, brokerInfo) {
