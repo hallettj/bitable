@@ -1,7 +1,3 @@
-/*
- * bencode: https://github.com/benjreinhart/bencode-js
- */
-
 define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
     'use strict';
 

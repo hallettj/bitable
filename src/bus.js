@@ -1,7 +1,3 @@
-/**
- * when: https://github.com/cujojs/when
- */
-
 define('kademlia/bus', ['./message', 'peerjs', 'when', 'bacon'], function(m, peerjs, when, Bacon) {
     'use strict';
 
