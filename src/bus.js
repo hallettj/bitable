@@ -8,10 +8,12 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
         ;
 
         var messages     = new Bacon.Bus();
+        var connectEvents = new Bacon.Bus();
         var closeEvents  = new Bacon.Bus();
 
         peer.on('connection', function(conn) {
             // TODO: clean up previous connection?
+            connectEvents.push(conn);
             initConnection(conn);
         });
         // TODO: attempt to reconnect when connection has been lost
@@ -54,6 +56,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
                     initConnection(conn);
                     conn.on('open', function() {
                         resolve(conn);
+                        connectEvents.push(conn);
                     });
                     conn.on('error', reject);
                 });
@@ -166,6 +169,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
             connect:     connect,
             disconnect:  disconnect,
             messages:    messages,
+            connectEvents: connectEvents,
             closeEvents: closeEvents
         };
     }

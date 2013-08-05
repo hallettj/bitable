@@ -128,6 +128,8 @@ define('kademlia/dht', [
         return {
             bootstrap: bootstrap,
             messages:  bus.messages,
+            connectEvents: bus.connectEvents,
+            closeEvents: bus.closeEvents,
             ping:      ping
         };
     }
