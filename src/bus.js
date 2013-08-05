@@ -75,7 +75,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
                 })
                 .on('data', function(data) {
                     var msg = m.decode(data);
-                    if (!react(conn, msg)) {
+                    if (!react(msg)) {
                         // Emit events only for incoming queries
                         subscriber(new Bacon.Next([msg, function(resp) {
                             dispatch(conn, msg.t, resp);
