@@ -39,7 +39,7 @@ define('kademlia/dht', [
                     bus.disconnect(node.id);
                 });
             });
-        }, 60000);
+        }, 300000);
 
         function bootstrap(peers) {
             return when.any(peers.map(connect)).then(function() {
@@ -114,7 +114,7 @@ define('kademlia/dht', [
                 // got response
             }, function() {
                 if (n > 0) {
-                    return when.delay(1000).then(function() {
+                    return when.delay(90000).then(function() {
                         return checkHealth(peer, n - 1);
                     });
                 }
