@@ -73,10 +73,19 @@ define('kademlia/route_table', ['./id'], function(Id) {
             buckets.push(new Bucket());
         }
 
+        function getNodes() {
+            var results = [];
+            for (var i = 0; i < buckets.length; i += 1) {
+                results = results.concat(buckets[i]);
+            }
+            return results;
+        }
+
         return {
-            insert:  insert,
-            remove:  remove,
-            closest: closest
+            insert:   insert,
+            remove:   remove,
+            closest:  closest,
+            getNodes: getNodes
         };
     }
 

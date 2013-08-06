@@ -4,7 +4,9 @@ require.config({
     baseUrl: '/',
     paths: {
         'kademlia': 'src',
-        'when': 'node_modules/when/when',
+        'when': 'node_modules/when',
+        //'when': 'node_modules/when/when',
+        //'when/timed': 'node_modules/when/timed',
         'lodash': 'node_modules/lodash/dist/lodash',
         'Bacon': 'node_modules/baconjs/dist/Bacon',
         'peerjs': 'node_modules/peerjs/dist/peer',

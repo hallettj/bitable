@@ -6,7 +6,7 @@ define('kademlia/dht', [
     './bus',
     './message',
     'lodash',
-    'when',
+    'when/when',
     'Bacon'
 ], function(Id, RouteTable, Bus, m, _, when, Bacon) {
     'use strict';
@@ -28,6 +28,18 @@ define('kademlia/dht', [
             // TODO: attempt to reconnect?  handle that in bus?
             routeTable.remove(id);
         });
+
+        setInterval(function() {
+            routeTable.getNodes().forEach(function(node) {
+                checkHealth(node, 3).then(function() {
+                    // connection is good
+                }, function(err) {
+                    console.log('bad health check, disconnecting', node.id, err);
+                    routeTable.remove(node.id);
+                    bus.disconnect(node.id);
+                });
+            });
+        }, 60000);
 
         function bootstrap(peers) {
             return when.any(peers.map(connect)).then(function() {
@@ -91,6 +103,18 @@ define('kademlia/dht', [
             function() {
                 // backtrack
                 return findNode_(target, subscriber, peers.slice(1));
+            });
+        }
+
+        function checkHealth(peer, n) {
+            return ping(peer).then(function() {
+                // got response
+            }, function() {
+                if (n > 0) {
+                    return when.delay(1000).then(function() {
+                        return checkHealth(peer, n - 1);
+                    });
+                }
             });
         }
 

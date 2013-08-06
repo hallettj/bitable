@@ -1,11 +1,18 @@
-define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Peer, when, Bacon) {
+define('kademlia/bus', [
+    './message',
+    'peerjs',
+    'when/when',
+    'when/timed',
+    'Bacon'
+], function(m, Peer, when, t, Bacon) {
     'use strict';
 
-    function Bus(id, brokerInfo) {
-        var peer = new Peer(id, brokerInfo)
+    function Bus(idSelf, brokerInfo) {
+        var peer = new Peer(idSelf, brokerInfo)
           , connections  = {}
           , pending      = {}
           , transactions = {}
+          , timeout      = 1000
         ;
 
         var messages     = new Bacon.Bus();
@@ -14,11 +21,11 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
 
         peer.on('connection', function(conn) {
             // TODO: clean up previous connection?
-            console.log('incoming connection', conn.peer);
+            console.log('incoming connection', conn.peer, conn.open);
             initConnection(conn);
         });
-        peer.on('error', function() {
-            console.error.apply(console, arguments);
+        peer.on('error', function(err) {
+            console.error(err.message, err);
         });
         // TODO: attempt to reconnect when connection has been lost
         // TODO: make errors loggable
@@ -51,10 +58,19 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
             }, function() {
                 console.log('not connected yet; connecting now', peer.id);
                 return withBroker(peer, function(broker) {
-                    var conn = broker.connect(peer.id, {
-                        reliable: false
+                    return when.promise(function(resolve, reject, notify) {
+                        var conn = broker.connect(peer.id, {
+                            reliable: false
+                        });
+                        broker.on('error', function(err) {
+                            // TODO: is this a hack or what?
+                            if (err.message && err.message.indexOf(peer.id) >= 0) {
+                                console.log('failed to connect to', peer.id);
+                                reject(err);
+                            }
+                        });
+                        initConnection(conn).then(resolve, reject, notify);
                     });
-                    return initConnection(conn);
                 });
             });
         }
@@ -99,6 +115,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
                     }
                 })
                 .on('error', function(err) {
+                    console.log('error connecting to', id, err);
                     deferred.reject(err);
                     subscriber(new Bacon.Error(err));
                 })
@@ -118,6 +135,12 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
                 connectEvents.push({
                     id: id
                 });
+            });
+            t.timeout(timeout, deferred.promise).then(noop, function(err) {
+                if (pending[id] === conn) {
+                    delete pending[id];
+                }
+                deferred.reject(err);
             });
             return deferred.promise;
         }
@@ -171,12 +194,20 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
 
         function transaction(fn) {
             var id = mkTransactionId()
-              , deferred = when.defer();
+              , deferred = when.defer()
+              , timed    = t.timeout(timeout, deferred.promise);
             transactions[id] = deferred;
             fn(id);
-            return deferred.promise;
+            timed.then(noop, function() {
+                if (transactions[id] === deferred) {
+                    delete transactions[id];
+                }
+            });
+            return timed;
         }
 
+        // TODO: id should be made up of arbitrary bytes, not just alpha
+        // chars
         function mkTransactionId() {
             var id = randChar() + randChar();
             if (transactions.hasOwnProperty(id)) {
@@ -189,6 +220,8 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
             var x = Math.floor(Math.random() * 26);
             return String.fromCharCode(97 + x);
         }
+
+        function noop(x) { return x; }
 
         return {
             query:       query,
