@@ -110,7 +110,7 @@ define('kademlia/bus', [
                     if (!react(msg)) {
                         // Emit events only for incoming queries
                         subscriber(new Bacon.Next([msg, function(resp) {
-                            dispatch(conn, msg.t, resp);
+                            dispatch(conn, msg.t, m.response(resp));
                         }]));
                     }
                 })
@@ -120,6 +120,7 @@ define('kademlia/bus', [
                     subscriber(new Bacon.Error(err));
                 })
                 .on('close', function() {
+                    console.log('connection closed', id);
                     if (connections[id] === conn) {
                         delete connections[id];
                     }

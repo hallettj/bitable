@@ -74,8 +74,11 @@ define('kademlia/dht', [
             });
         }
 
+        function query(peer, type, params) {
+            return bus.query(peer, m.query(type, params));
+        }
+
         function findNode_(target, subscriber, peers, lastDist) {
-            console.log('findNode_', lastDist, peers);
             if (peers.length < 1) {
                 return when.reject('out of peers');
             }
@@ -102,7 +105,7 @@ define('kademlia/dht', [
             },
             function() {
                 // backtrack
-                return findNode_(target, subscriber, peers.slice(1));
+                return findNode_(target, subscriber, peers.slice(1), lastDist);
             });
         }
 
@@ -139,10 +142,9 @@ define('kademlia/dht', [
         }
 
         function reactPing(msg, respond) {
-            console.log('reactPing', msg);
-            respond(m.response({
+            respond({
                 id: idSelf
-            }));
+            });
         }
 
         function reactFindNode(msg, respond) {
@@ -156,11 +158,10 @@ define('kademlia/dht', [
             if (results.length > 0 && Id.compare(results[0].id, target) === 0) {
                 results = results.slice(0, 1);
             }
-            console.log('reactFindNode', results);
-            respond(m.response({
+            respond({
                 id: idSelf,
                 nodes: results
-            }));
+            });
         }
 
         return {
@@ -168,8 +169,10 @@ define('kademlia/dht', [
             messages:  bus.messages,
             connectEvents: bus.connectEvents,
             closeEvents: bus.closeEvents,
+            routeTable:  routeTable,
             ping:      ping,
             findNode:  findNode,
+            query:     query,
             connect:   connect,
             destroy:   destroy
         };

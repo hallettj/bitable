@@ -23,13 +23,16 @@ define('kademlia/route_table', ['./id'], function(Id) {
                 // into reserve list
             }
             else {
+                // New peer is pushed onto the end of the bucket.
+                // Buckets wind up ordered by length of time peers have
+                // stayed connected.
                 bucket.push(peer);
                 bucket.lastChange = new Date();
             }
         }
 
         function remove(peer) {
-            var id     = peer.id ? peer.id : id
+            var id     = peer.id ? peer.id : peer
               , index  = getBucketIndex(id)
               , bucket = buckets[index];
             buckets[index] = new Bucket(bucket.filter(function(peer) {
@@ -84,8 +87,10 @@ define('kademlia/route_table', ['./id'], function(Id) {
         return {
             insert:   insert,
             remove:   remove,
+            contains: contains,
             closest:  closest,
-            getNodes: getNodes
+            getNodes: getNodes,
+            getBuckets: function() { return buckets; }
         };
     }
 
