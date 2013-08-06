@@ -63,6 +63,7 @@ define('kademlia/dht', [
         }
 
         function findNode_(target, subscriber, peers, lastDist) {
+            console.log('findNode_', lastDist, peers);
             if (peers.length < 1) {
                 return when.reject('out of peers');
             }
