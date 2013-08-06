@@ -2,13 +2,14 @@
 <html>
     <head>
         <meta charset="utf-8">
-        <title>Magnet Store</title>
+        <title>Distributed Kitten Protocol (DKP)</title>
     </head>
     <body>
-        <section>
+        <div>
             <header>
                 <h1>Welcome to the Distributed Kitten Protocol (DKP)</h1>
             </header>
+
             <aside id="stats">
                 <table>
                     <tr>
@@ -21,13 +22,26 @@
                     </tr>
                 </table>
             </aside>
+
+            <form id="getName">
+                <label for="name">What is your name?</label>
+                <input type="text" name="name" value="anon" />
+                <input type="submit" value="submit" />
+            </form>
+
+            <form id="upload">
+                <label for="image">upload an image</label>
+                <input type="file" name="image" />
+                <input type="submit" value="submit" />
+            </form>
+
             <section>
                 <header>
                     <h2>recent kittens</h2>
-                    <ul id="posts"></ul>
+                    <div id="posts"></div>
                 </header>
             </section>
-        </section>
+        </div>
         <script src="require.js"></script>
         <script src="main.js"></script>
     </body>

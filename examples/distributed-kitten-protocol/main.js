@@ -28,12 +28,14 @@ require.config({
 require([
     'kademlia/dht',
     'kademlia/id',
-    'jquery'
-], function(DHT, Id, $) {
+    'jquery',
+    'lodash'
+], function(DHT, Id, $, _) {
     'use strict';
 
     var id = param('id') || Id.random();
     var bootstrapId = param('bootstrap');
+    var name = "anon";
 
     var self = {
         id: id,
@@ -59,54 +61,137 @@ require([
 
     var broadcasts = [];
 
+    $('#getName').on('submit', function(event) {
+        event.preventDefault();
+        $(this).find(':input[name="name"]').each(function() {
+            name = this.value;
+        });
+        $(this).remove();
+    });
+
+    $('#upload').on('submit', function(event) {
+        event.preventDefault();
+        var files = $(this).find(':file').get(0).files;
+        for (var i = 0; i < files.length; i += 1) {
+            postImage(files[i]);
+        }
+    });
+
     dht.messages.onValue(function(incoming) {
         var msg     = incoming[0]
-          , respond = incoming[1];
+          , respond = incoming[1]
+          , params  = msg.a
+          , token   = params.token;
         if (msg.q === 'broadcast') {
-            rebroadcast(msg.a, respond);
-            onbroadcast(msg.a);
+            if (!broadcasts[token]) {
+                params.chunks = new Array(params.len);
+                params.received = 0;
+                params.start = new Date();
+                broadcasts[token] = params;
+            }
+            else {
+                params = broadcasts[token];
+            }
+            if (typeof params.chunks[params.i] === 'undefined') {
+                params.chunks[params.i] = params.chunk;
+                params.received += 1;
+
+                rebroadcast(msg.a, respond);
+
+                if (params.received === params.len) {
+                    params.data = params.chunks.join('');
+                    onbroadcast(params);
+                }
+            }
         }
     });
 
     function onbroadcast(params) {
         $('#posts').prepend(
-            $('<li>').text(params.data + ' -- ' + params.origin)
+            $('<div/>').append(
+                $('<img/>').prop('src', params.data)
+            ).append(
+                ' '
+            ).append(
+                $('<span/>').text('posted by ').append(
+                    $('<abbr/>').attr('title', params.origin).text(params.by)
+                )
+            )
         );
+        $('#posts > *').slice(10).remove();  // limit to 10 posts
     }
 
     function broadcast(msg) {
+        var chunks = inChunks(msg, 1000);
+        var peers  = [];
+        var params = {
+            id: self.id,
+            by: name,
+            origin: self.id,
+            token: Id.random(),
+            len: chunks.length
+        };
+
         dht.routeTable.getBuckets().forEach(function(bucket) {
-            var peers = bucket.slice(0, 3);
-            peers.forEach(function(peer) {
-                dht.query(peer, 'broadcast', {
-                    origin: self.id,
-                    id: self.id,
-                    token: Id.random(),
-                    data: msg
-                });
-            });
+            peers.push.apply(peers, bucket.slice(0, 3));
         });
+
+        broadcast_(params, peers, chunks);
+
+        onbroadcast(_.assign({
+            data: msg
+        }, params));
+    }
+
+    function broadcast_(params, peers, chunks) {
+        for (var i = 0; i < chunks.length; i += 1) {
+            for (var j = 0; j < peers.length; j += 1) {
+                dht.query(peers[j], 'broadcast', _.assign({
+                    i: i,
+                    chunk: chunks[i]
+                }, params));
+            }
+        }
     }
 
     function rebroadcast(params, respond) {
-        if (broadcasts[params.token]) { return; }
-        broadcasts[params.token] = new Date();
-
         var from = params.id;
         respond({
             id: self.id,
-            token: params.token
+            token: params.token,
+            i: params.i
         });
         dht.routeTable.getNodes().filter(function(node) {
             return Id.compare(Id.dist(node.id, self.id), Id.dist(node.id, from)) < 0;
         }).forEach(function(node) {
             dht.query(node, 'broadcast', {
                 id: self.id,
+                by: params.by,
                 origin: params.origin,
                 token: params.token,
-                data: params.data
+                len: params.len,
+                i: params.i,
+                chunk: params.chunk
             });
         });
+    }
+
+    function inChunks(msg, chunkSize) {
+        var chunks = [];
+        while (msg.length > chunkSize) {
+            chunks.push(msg.slice(0, chunkSize));
+            msg = msg.slice(chunkSize);
+        }
+        return chunks;
+    }
+
+    function postImage(file) {
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            var uri = event.target.result;
+            broadcast(uri);
+        };
+        reader.readAsDataURL(file);
     }
 
     window.meow = function() {
@@ -115,10 +200,11 @@ require([
         broadcast(data);
     };
 
+    // cleanup buffered data
     setInterval(function() {
         var cutoff = new Date() - 600000;
         Object.keys(broadcasts).forEach(function(token) {
-            if (broadcasts[token] < cutoff) {
+            if (broadcasts[token].start < cutoff) {
                 delete broadcasts[token];
             }
         });

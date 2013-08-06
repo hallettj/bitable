@@ -138,7 +138,7 @@ define('kademlia/bus', [
                 });
             });
             t.timeout(timeout, deferred.promise).then(noop, function(err) {
-                if (pending[id] === conn) {
+                if (pending[id] === deferred.promise) {
                     delete pending[id];
                 }
                 deferred.reject(err);
