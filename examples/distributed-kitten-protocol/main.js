@@ -28,10 +28,9 @@ require.config({
 require([
     'kademlia/dht',
     'kademlia/id',
-    'when/when',
     'jquery',
     'lodash'
-], function(DHT, Id, when, $, _) {
+], function(DHT, Id, $, _) {
     'use strict';
 
     var id = param('id') || Id.random();
@@ -62,7 +61,7 @@ require([
 
     var broadcasts = [];
 
-    $('#getName').on('submit', function(event) {
+    $('form').on('submit', function(event) {
         event.preventDefault();
         $(this).find(':input[name="name"]').each(function() {
             name = this.value;
@@ -70,21 +69,12 @@ require([
         $(this).remove();
     });
 
-    $('#upload').on('submit', function(event) {
-        event.preventDefault();
-        var files = $(this).find(':file').get(0).files;
-        for (var i = 0; i < files.length; i += 1) {
-            broadcast(files[i]);
-        }
-    });
-
     dht.messages.onValue(function(incoming) {
         var msg     = incoming[0]
-          , respond = incoming[1]
-          , token   = msg.a && msg.a.token;
+          , respond = incoming[1];
         if (msg.q === 'broadcast') {
-            if (!broadcasts[token]) {
-                broadcasts[token] = new Date();
+            if (!broadcasts[msg.a.token]) {
+                broadcasts[msg.a.token] = new Date();
                 rebroadcast(msg.a, respond);
                 onbroadcast(msg.a);
             }
@@ -92,20 +82,12 @@ require([
     });
 
     function onbroadcast(params) {
-        blobToUri(params.data).then(function(uri) {
-            $('#posts').prepend(
-                $('<div/>').append(
-                    $('<img/>').prop('src', uri)
-                ).append(
-                    ' '
-                ).append(
-                    $('<span/>').text('posted by ').append(
-                        $('<abbr/>').attr('title', params.origin).text(params.by)
-                    )
-                )
-            );
-            $('#posts > *').slice(10).remove();  // limit to 10 posts
-        });
+        $('#posts').prepend(
+            $('<li/>').text(params.data + ' -- ').append(
+                $('<abbr/>').attr('title', params.origin).text(params.by)
+            )
+        );
+        $('#posts > *').slice(10).remove();  // limit to 10 posts
     }
 
     function broadcast(msg) {
@@ -113,16 +95,15 @@ require([
             id: self.id,
             by: name,
             origin: self.id,
-            data: msg,
-            token: Id.random()
+            token: Id.random(),
+            data: msg
         };
-
         dht.routeTable.getBuckets().forEach(function(bucket) {
-            bucket.slice(0, 3).forEach(function(peer) {
+            var peers = bucket.slice(0, 3);
+            peers.forEach(function(peer) {
                 dht.query(peer, 'broadcast', params);
             });
         });
-
         onbroadcast(params);
     }
 
@@ -130,8 +111,7 @@ require([
         var from = params.id;
         respond({
             id: self.id,
-            token: params.token,
-            i: params.i
+            token: params.token
         });
         dht.routeTable.getNodes().filter(function(node) {
             return Id.compare(Id.dist(node.id, self.id), Id.dist(node.id, from)) < 0;
@@ -141,32 +121,8 @@ require([
                 by: params.by,
                 origin: params.origin,
                 token: params.token,
-                len: params.len,
-                i: params.i,
-                chunk: params.chunk
+                data: params.data
             });
-        });
-    }
-
-    function blobToUri(file) {
-        return when.promise(function(resolve) {
-            var reader = new FileReader();
-            reader.onload = function(event) {
-                var uri = event.target.result;
-                resolve(uri);
-            };
-            reader.readAsDataURL(file);
-        });
-    }
-
-    function blobToArrayBuffer(file) {
-        return when.promise(function(resolve) {
-            var reader = new FileReader();
-            reader.onloadend = function(event) {
-                var uri = event.target.result;
-                resolve(uri);
-            };
-            reader.readAsArrayBuffer(file);
         });
     }
 
@@ -176,11 +132,10 @@ require([
         broadcast(data);
     };
 
-    // cleanup buffered data
     setInterval(function() {
         var cutoff = new Date() - 600000;
         Object.keys(broadcasts).forEach(function(token) {
-            if (broadcasts[token].start < cutoff) {
+            if (broadcasts[token] < cutoff) {
                 delete broadcasts[token];
             }
         });
