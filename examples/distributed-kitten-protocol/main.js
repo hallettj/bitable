@@ -28,9 +28,10 @@ require.config({
 require([
     'kademlia/dht',
     'kademlia/id',
+    'when/when',
     'jquery',
     'lodash'
-], function(DHT, Id, $, _) {
+], function(DHT, Id, when, $, _) {
     'use strict';
 
     var id = param('id') || Id.random();
@@ -73,85 +74,56 @@ require([
         event.preventDefault();
         var files = $(this).find(':file').get(0).files;
         for (var i = 0; i < files.length; i += 1) {
-            postImage(files[i]);
+            broadcast(files[i]);
         }
     });
 
     dht.messages.onValue(function(incoming) {
         var msg     = incoming[0]
           , respond = incoming[1]
-          , params  = msg.a
-          , token   = params.token;
+          , token   = msg.a && msg.a.token;
         if (msg.q === 'broadcast') {
             if (!broadcasts[token]) {
-                params.chunks = new Array(params.len);
-                params.received = 0;
-                params.start = new Date();
-                broadcasts[token] = params;
-            }
-            else {
-                params = broadcasts[token];
-            }
-            if (typeof params.chunks[params.i] === 'undefined') {
-                params.chunks[params.i] = params.chunk;
-                params.received += 1;
-
+                broadcasts[token] = new Date();
                 rebroadcast(msg.a, respond);
-
-                if (params.received === params.len) {
-                    params.data = params.chunks.join('');
-                    onbroadcast(params);
-                }
+                onbroadcast(msg.a);
             }
         }
     });
 
     function onbroadcast(params) {
-        $('#posts').prepend(
-            $('<div/>').append(
-                $('<img/>').prop('src', params.data)
-            ).append(
-                ' '
-            ).append(
-                $('<span/>').text('posted by ').append(
-                    $('<abbr/>').attr('title', params.origin).text(params.by)
+        blobToUri(params.data).then(function(uri) {
+            $('#posts').prepend(
+                $('<div/>').append(
+                    $('<img/>').prop('src', uri)
+                ).append(
+                    ' '
+                ).append(
+                    $('<span/>').text('posted by ').append(
+                        $('<abbr/>').attr('title', params.origin).text(params.by)
+                    )
                 )
-            )
-        );
-        $('#posts > *').slice(10).remove();  // limit to 10 posts
+            );
+            $('#posts > *').slice(10).remove();  // limit to 10 posts
+        });
     }
 
     function broadcast(msg) {
-        var chunks = inChunks(msg, 1000);
-        var peers  = [];
         var params = {
             id: self.id,
             by: name,
             origin: self.id,
-            token: Id.random(),
-            len: chunks.length
+            data: msg,
+            token: Id.random()
         };
 
         dht.routeTable.getBuckets().forEach(function(bucket) {
-            peers.push.apply(peers, bucket.slice(0, 3));
+            bucket.slice(0, 3).forEach(function(peer) {
+                dht.query(peer, 'broadcast', params);
+            });
         });
 
-        broadcast_(params, peers, chunks);
-
-        onbroadcast(_.assign({
-            data: msg
-        }, params));
-    }
-
-    function broadcast_(params, peers, chunks) {
-        for (var i = 0; i < chunks.length; i += 1) {
-            for (var j = 0; j < peers.length; j += 1) {
-                dht.query(peers[j], 'broadcast', _.assign({
-                    i: i,
-                    chunk: chunks[i]
-                }, params));
-            }
-        }
+        onbroadcast(params);
     }
 
     function rebroadcast(params, respond) {
@@ -176,22 +148,26 @@ require([
         });
     }
 
-    function inChunks(msg, chunkSize) {
-        var chunks = [];
-        while (msg.length > chunkSize) {
-            chunks.push(msg.slice(0, chunkSize));
-            msg = msg.slice(chunkSize);
-        }
-        return chunks;
+    function blobToUri(file) {
+        return when.promise(function(resolve) {
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                var uri = event.target.result;
+                resolve(uri);
+            };
+            reader.readAsDataURL(file);
+        });
     }
 
-    function postImage(file) {
-        var reader = new FileReader();
-        reader.onload = function(event) {
-            var uri = event.target.result;
-            broadcast(uri);
-        };
-        reader.readAsDataURL(file);
+    function blobToArrayBuffer(file) {
+        return when.promise(function(resolve) {
+            var reader = new FileReader();
+            reader.onloadend = function(event) {
+                var uri = event.target.result;
+                resolve(uri);
+            };
+            reader.readAsArrayBuffer(file);
+        });
     }
 
     window.meow = function() {
