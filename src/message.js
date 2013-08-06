@@ -30,16 +30,14 @@ define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
     }
 
     function build(message, transactionId) {
-        return _.assign({
+        return b.encode(_.assign({
             t: transactionId
-        }, message);
+        }, message));
     }
 
     return {
-        //decode:    b.decode,
-        //encode:    b.encode,
-        decode:    function(x) { return x; },
-        encode:    function(x) { return x; },
+        decode:    b.decode,
+        encode:    b.encode,
         find_node: find_node,
         ping:      ping,
         query:     query,

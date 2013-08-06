@@ -28,10 +28,10 @@ require.config({
 require([
     'kademlia/dht',
     'kademlia/id',
-    'when/when',
+    'when/timed',
     'jquery',
     'lodash'
-], function(DHT, Id, when, $, _) {
+], function(DHT, Id, t, $, _) {
     'use strict';
 
     var id = param('id') || Id.random();
@@ -74,55 +74,87 @@ require([
         event.preventDefault();
         var files = $(this).find(':file').get(0).files;
         for (var i = 0; i < files.length; i += 1) {
-            broadcast(files[i]);
+            postImage(files[i]);
         }
     });
 
     dht.messages.onValue(function(incoming) {
         var msg     = incoming[0]
           , respond = incoming[1]
-          , token   = msg.a && msg.a.token;
+          , params  = msg.a
+          , token   = params.token;
         if (msg.q === 'broadcast') {
             if (!broadcasts[token]) {
-                broadcasts[token] = new Date();
+                params.chunks = new Array(params.len);
+                params.received = 0;
+                params.start = new Date();
+                broadcasts[token] = params;
+            }
+            else {
+                params = broadcasts[token];
+            }
+            if (typeof params.chunks[msg.a.i] === 'undefined') {
+                params.chunks[msg.a.i] = msg.a.chunk;
+                params.received += 1;
+
                 rebroadcast(msg.a, respond);
-                onbroadcast(msg.a);
+
+                if (params.received === params.len) {
+                    params.data = params.chunks.join('');
+                    onbroadcast(params);
+                }
             }
         }
     });
 
     function onbroadcast(params) {
-        arrayBufferToUri(params.data, params.type).then(function(uri) {
-            $('#posts').prepend(
-                $('<img/>')
-                    .prop('src', uri)
-                    .prop('title', 'posted by '+ params.by +' ('+ params.origin +')')
-            );
-            $('#posts > *').slice(10).remove();  // limit to 10 posts
-        });
+        $('#posts').prepend(
+            $('<div/>').append(
+                $('<img/>').prop('src', params.data)
+            ).append(
+                ' '
+            ).append(
+                $('<span/>').text('posted by ').append(
+                    $('<abbr/>').attr('title', params.origin).text(params.by)
+                )
+            )
+        );
+        $('#posts > *').slice(10).remove();  // limit to 10 posts
     }
 
     function broadcast(msg) {
+        var chunks = inChunks(msg, 500);
+        var peers  = [];
         var params = {
             id: self.id,
             by: name,
             origin: self.id,
-            data: msg,
-            type: msg.type,
-            token: Id.random()
+            token: Id.random(),
+            len: chunks.length
         };
 
         dht.routeTable.getBuckets().forEach(function(bucket) {
-            bucket.slice(0, 3).forEach(function(peer) {
-                dht.query(peer, 'broadcast', params);
-            });
+            peers.push.apply(peers, bucket.slice(0, 3));
         });
 
-        blobToArrayBuffer(msg).then(function(blob) {
-            onbroadcast(_.assign({}, params, {
-                data: blob
-            }));
+        peers.forEach(function(peer) {
+            (function broadcast_(i) {
+                var resp = dht.query(peer, 'broadcast', _.assign({
+                    i: i,
+                    chunk: chunks[i]
+                }, params));
+                //t.timeout(500, resp).then(function() {
+                resp.then(function() {
+                    if (i + 1 < chunks.length) {
+                        broadcast_(i + 1);
+                    }
+                });
+            }(0));
         });
+
+        onbroadcast(_.assign({
+            data: msg
+        }, params));
     }
 
     function rebroadcast(params, respond) {
@@ -130,54 +162,39 @@ require([
         respond({
             id: self.id,
             token: params.token,
+            i: params.i
         });
         dht.routeTable.getNodes().filter(function(node) {
             return Id.compare(Id.dist(node.id, self.id), Id.dist(node.id, from)) < 0;
         }).forEach(function(node) {
-            dht.query(node, 'broadcast', _.assign({}, params, {
-                id: self.id
-            }));
+            dht.query(node, 'broadcast', {
+                id: self.id,
+                by: params.by,
+                origin: params.origin,
+                token: params.token,
+                len: params.len,
+                i: params.i,
+                chunk: params.chunk
+            });
         });
     }
 
-    function blobToUri(file) {
-        return when.promise(function(resolve) {
-            var reader = new FileReader();
-            reader.onload = function(event) {
-                var uri = event.target.result;
-                resolve(uri);
-            };
-            reader.readAsDataURL(file);
-        });
-    }
-
-    function blobToArrayBuffer(file) {
-        return when.promise(function(resolve) {
-            var reader = new FileReader();
-            reader.onloadend = function(event) {
-                var uri = event.target.result;
-                resolve(uri);
-            };
-            reader.readAsArrayBuffer(file);
-        });
-    }
-
-    function arrayBufferToUri(buffer, mimetype) {
-        return when.resolve(
-            "data:"+mimetype+";base64,"+ _arrayBufferToBase64(buffer)
-        );
-    }
-
-    // From:
-    // http://stackoverflow.com/questions/15394170/safari-img-element-wont-render-image-retrieved-from-service-e-g-dropbox-as
-    function _arrayBufferToBase64( buffer ) {
-        var binary = '';
-        var bytes = new Uint8Array( buffer );
-        var len = bytes.byteLength;
-        for (var i = 0; i < len; i++) {
-            binary += String.fromCharCode( bytes[ i ] );
+    function inChunks(msg, chunkSize) {
+        var chunks = [];
+        while (msg.length > chunkSize) {
+            chunks.push(msg.slice(0, chunkSize));
+            msg = msg.slice(chunkSize);
         }
-        return window.btoa( binary );
+        return chunks;
+    }
+
+    function postImage(file) {
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            var uri = event.target.result;
+            broadcast(uri);
+        };
+        reader.readAsDataURL(file);
     }
 
     window.meow = function() {
