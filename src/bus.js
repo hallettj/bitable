@@ -60,7 +60,7 @@ define('kademlia/bus', [
                 return withBroker(peer, function(broker) {
                     return when.promise(function(resolve, reject, notify) {
                         var conn = broker.connect(peer.id, {
-                            reliable: false
+                            reliable: true
                         });
                         broker.on('error', function(err) {
                             // TODO: is this a hack or what?
