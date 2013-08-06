@@ -13,7 +13,11 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
 
         peer.on('connection', function(conn) {
             // TODO: clean up previous connection?
-            connectEvents.push(conn);
+            connectEvents.push({
+                id: conn.peer,
+                host: brokerInfo.host,
+                port: brokerInfo.port
+            });
             initConnection(conn);
         });
         // TODO: attempt to reconnect when connection has been lost
@@ -48,6 +52,11 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
          * Establish a long-lived connection.
          */
         function connect(peer) {
+            if (connections[peer.id]) {
+                // TODO: maintain list of pending connections as well
+                return when.resolve(connections[peer.id]);
+            }
+
             return withBroker(peer, function(broker) {
                 return when.promise(function(resolve, reject) {
                     var conn = broker.connect(peer.id, {
@@ -56,7 +65,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
                     initConnection(conn);
                     conn.on('open', function() {
                         resolve(conn);
-                        connectEvents.push(conn);
+                        connectEvents.push(peer);
                     });
                     conn.on('error', reject);
                 });
@@ -69,8 +78,17 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
             });
         }
 
+        function destroy() {
+            Object.keys(connections).forEach(function(k) {
+                disconnect(k);
+            });
+        }
+
         function initConnection(conn) {
-            var id = conn.peer;
+            var id = conn.peer, alreadyOpen = conn.open;
+            if (alreadyOpen) {
+                connections[id] = conn;
+            }
             var stream = new Bacon.EventStream(function(subscriber) {
                 conn
                 .on('open', function() {
@@ -168,6 +186,7 @@ define('kademlia/bus', ['./message', 'peerjs', 'when', 'Bacon'], function(m, Pee
             query:       query,
             connect:     connect,
             disconnect:  disconnect,
+            destroy:     destroy,
             messages:    messages,
             connectEvents: connectEvents,
             closeEvents: closeEvents

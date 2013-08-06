@@ -26,41 +26,44 @@ require.config({
 require(['kademlia/dht', 'kademlia/id', 'jquery'], function(DHT, Id, $) {
     'use strict';
 
-    var isPrime = !!/\?.*prime/.exec(window.location);
-    var id = isPrime ? "bd48eb8ac5242d3d9e730a00a0ccc46ca925158b" : Id.random();
+    var id = param('id') || Id.random();
+    var bootstrapId = param('bootstrap');
 
     var self = {
         id: id,
         host: 'zinc.sitr.us',
         port: 9000
     };
-    window.self = self;
-    window.dht = new DHT({
+    var dht = new DHT({
         id: id,
         brokerInfo: { host: 'zinc.sitr.us', port: 9000 }
     });
 
-    if (!isPrime) {
-        window.dht.bootstrap([{
-            id: "bd48eb8ac5242d3d9e730a00a0ccc46ca925158b",
+    console.log('ready', self.id, self);
+    log('online as '+ self.id);
+
+    if (bootstrapId) {
+        log('connecting to '+ bootstrapId);
+        dht.bootstrap([{
+            id: bootstrapId,
             host: "zinc.sitr.us",
             port: 9000
         }]);
     }
 
-    window.dht.connectEvents.onValue(function(conn) {
-        var msg = "connected to "+ conn.peer;
-        console.log('connection', conn.peer, conn);
+    dht.connectEvents.onValue(function(peer) {
+        var msg = "connected to "+ peer.id;
+        console.log('connection', peer.id, peer);
         log(msg);
     });
 
-    window.dht.closeEvents.onValue(function(id) {
+    dht.closeEvents.onValue(function(id) {
         var msg = "lost connection to"+ id;
         console.log('lost connection', id);
         log(msg);
     });
 
-    window.dht.messages.onError(function(err) {
+    dht.messages.onError(function(err) {
         console.error(err);
     });
 
@@ -69,5 +72,12 @@ require(['kademlia/dht', 'kademlia/id', 'jquery'], function(DHT, Id, $) {
         $log.val($log.val() + "\n" + msg);
     }
 
-    console.log('ready', self);
+    function param(key) {
+        var exp = new RegExp('\\b'+ key +'=([^&=]+)');
+        var matches = exp.exec(window.location);
+        return matches && matches[1];
+    }
+
+    window.self = self;
+    window.dht  = dht;
 });

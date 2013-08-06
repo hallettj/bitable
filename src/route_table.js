@@ -9,6 +9,8 @@ define('kademlia/route_table', ['./id'], function(Id) {
         addBucket();
 
         function insert(peer) {
+            if (contains(peer.id)) { return; }
+
             var id     = peer.id
               , index  = getBucketIndex(id)
               , bucket = buckets[index];
@@ -34,6 +36,11 @@ define('kademlia/route_table', ['./id'], function(Id) {
                 return peer.id !== id;
             }));
             // TODO: fill position from reserve list
+        }
+
+        function contains(id) {
+            var peer = closest(id)[0];
+            return !!(peer && peer.id === id);
         }
 
         function closest(id) {
