@@ -28,10 +28,11 @@ require.config({
 require([
     'kademlia/dht',
     'kademlia/id',
+    'when/when',
     'when/timed',
     'jquery',
     'lodash'
-], function(DHT, Id, t, $, _) {
+], function(DHT, Id, when, t, $, _) {
     'use strict';
 
     var id = param('id') || Id.random();
@@ -74,7 +75,7 @@ require([
         event.preventDefault();
         var files = $(this).find(':file').get(0).files;
         for (var i = 0; i < files.length; i += 1) {
-            postImage(files[i]);
+            blobToUri(files[i]).then(broadcast);
         }
     });
 
@@ -137,19 +138,29 @@ require([
             peers.push.apply(peers, bucket.slice(0, 3));
         });
 
+        var maxRetries = 10;
+
         peers.forEach(function(peer) {
-            (function broadcast_(i) {
+            (function broadcast_(i, retries) {
                 var resp = dht.query(peer, 'broadcast', _.assign({
                     i: i,
                     chunk: chunks[i]
                 }, params));
                 //t.timeout(500, resp).then(function() {
+
                 resp.then(function() {
                     if (i + 1 < chunks.length) {
-                        broadcast_(i + 1);
+                        broadcast_(i + 1, maxRetries);
+                    }
+                }, function() {
+                    if (retries > 0) {
+                        setTimeout(function() {
+                            broadcast_(i, retries - 1);
+                        }, Math.pow(2, maxRetries - retries));
                     }
                 });
-            }(0));
+
+            }(0, maxRetries));
         });
 
         onbroadcast(_.assign({
@@ -188,13 +199,15 @@ require([
         return chunks;
     }
 
-    function postImage(file) {
-        var reader = new FileReader();
-        reader.onload = function(event) {
-            var uri = event.target.result;
-            broadcast(uri);
-        };
-        reader.readAsDataURL(file);
+    function blobToUri(file) {
+        return when.promise(function(resolve) {
+            var reader = new FileReader();
+            reader.onload = function(event) {
+                var uri = event.target.result;
+                resolve(uri);
+            };
+            reader.readAsDataURL(file);
+        });
     }
 
     window.meow = function() {
