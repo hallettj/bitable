@@ -79,6 +79,8 @@ require([
         }
     });
 
+    $('.joinLink').prop('href', makeJoinLink());
+
     dht.messages.onValue(function(incoming) {
         var msg     = incoming[0]
           , respond = incoming[1]
@@ -105,20 +107,17 @@ require([
                     onbroadcast(params);
                 }
             }
+            else {
+                refuseBroadcast(msg.a, respond);
+            }
         }
     });
 
     function onbroadcast(params) {
         $('#posts').prepend(
-            $('<div/>').append(
-                $('<img/>').prop('src', params.data)
-            ).append(
-                ' '
-            ).append(
-                $('<span/>').text('posted by ').append(
-                    $('<abbr/>').attr('title', params.origin).text(params.by)
-                )
-            )
+            $('<img/>')
+                .prop('src', params.data)
+                .prop('title', 'posted by '+ params.by +' ('+ params.origin +')')
         );
         $('#posts > *').slice(10).remove();  // limit to 10 posts
     }
@@ -146,10 +145,9 @@ require([
                     i: i,
                     chunk: chunks[i]
                 }, params));
-                //t.timeout(500, resp).then(function() {
 
-                resp.then(function() {
-                    if (i + 1 < chunks.length) {
+                t.timeout(500, resp).then(function(r) {
+                    if (r.r && r.r.p === 'yes' && i + 1 < chunks.length) {
                         broadcast_(i + 1, maxRetries);
                     }
                 }, function() {
@@ -168,12 +166,14 @@ require([
         }, params));
     }
 
+    // TODO: need to apply retries to rebroadcast
     function rebroadcast(params, respond) {
         var from = params.id;
         respond({
             id: self.id,
             token: params.token,
-            i: params.i
+            i: params.i,
+            p: 'yes'
         });
         dht.routeTable.getNodes().filter(function(node) {
             return Id.compare(Id.dist(node.id, self.id), Id.dist(node.id, from)) < 0;
@@ -187,6 +187,15 @@ require([
                 i: params.i,
                 chunk: params.chunk
             });
+        });
+    }
+
+    function refuseBroadcast(params, respond) {
+        respond({
+            id: self.id,
+            token: params.token,
+            i: params.i,
+            p: 'no'
         });
     }
 
@@ -213,11 +222,10 @@ require([
         });
     }
 
-    window.meow = function() {
-        var nonce = Math.floor(Math.random() * 10000)
-          , data  = "meow"+ nonce;
-        broadcast(data);
-    };
+    function makeJoinLink() {
+        var base = window.location.href.split('?')[0];
+        return base + '?bootstrap='+ self.id;
+    }
 
     // cleanup buffered data
     setInterval(function() {
