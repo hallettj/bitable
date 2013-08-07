@@ -83,8 +83,8 @@ require([
         var msg     = incoming[0]
           , respond = incoming[1]
           , params  = msg.a
-          , token   = params.token;
-        if (msg.q === 'broadcast') {
+          , token   = msg && msg.a && params.token;
+        if (msg.q === 'broadcast' && token) {
             if (!broadcasts[token]) {
                 params.chunks = new Array(params.len);
                 params.received = 0;
@@ -195,6 +195,9 @@ require([
         while (msg.length > chunkSize) {
             chunks.push(msg.slice(0, chunkSize));
             msg = msg.slice(chunkSize);
+        }
+        if (msg.length > 0) {
+            chunks.push(msg);
         }
         return chunks;
     }
