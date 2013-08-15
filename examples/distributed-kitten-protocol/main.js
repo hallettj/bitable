@@ -75,7 +75,16 @@ require([
         event.preventDefault();
         var files = $(this).find(':file').get(0).files;
         for (var i = 0; i < files.length; i += 1) {
-            blobToUri(files[i]).then(broadcast);
+            blobToUri(files[i]).then(broadcast).then(compl, $.noop, prog);
+        }
+        function compl() {
+            $('#sending').hide();
+        }
+        // TODO: individual progress indicator for each file
+        function prog(progress) {
+            $('#sending').toggle(progress < 1).text(
+                'sending: '+ Math.floor(progress * 100) +'%'
+            );
         }
     });
 
@@ -123,6 +132,7 @@ require([
     }
 
     function broadcast(msg) {
+        var deferred = when.defer();
         var chunks = inChunks(msg, 500);
         var peers  = [];
         var params = {
@@ -137,7 +147,7 @@ require([
             peers.push.apply(peers, bucket.slice(0, 3));
         });
 
-        var maxRetries = 10;
+        var maxRetries = 10, progress = 0;
 
         peers.forEach(function(peer) {
             (function broadcast_(i, retries) {
@@ -147,14 +157,30 @@ require([
                 }, params));
 
                 t.timeout(500, resp).then(function(r) {
-                    if (r.r && r.r.p === 'yes' && i + 1 < chunks.length) {
-                        broadcast_(i + 1, maxRetries);
+                    var p;
+                    if (r.r && r.r.p === 'yes') {
+                        if (i + 1 < chunks.length) {
+                            p = (i + 1) / chunks.length;
+                            if (p > progress) {
+                                deferred.notify(p);
+                                progress = p;
+                            }
+                            broadcast_(i + 1, maxRetries);
+                        }
+                        else {
+                            deferred.resolve();
+                        }
                     }
                 }, function() {
                     if (retries > 0) {
                         setTimeout(function() {
                             broadcast_(i, retries - 1);
                         }, Math.pow(2, maxRetries - retries));
+                    }
+                    else {
+                        // TODO: reject if broadcast to all peers
+                        // failed?
+                        //deferred.reject();
                     }
                 });
 
@@ -164,6 +190,8 @@ require([
         onbroadcast(_.assign({
             data: msg
         }, params));
+
+        return deferred.promise;
     }
 
     // TODO: need to apply retries to rebroadcast
