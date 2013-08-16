@@ -1,4 +1,4 @@
-define('kademlia/message', ['bencode-js', 'lodash'], function(b, _) {
+define('bitstar/message', ['bencode-js', 'lodash'], function(b, _) {
     'use strict';
 
     function ping(self) {

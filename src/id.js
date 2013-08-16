@@ -1,4 +1,4 @@
-define('kademlia/id', function(StringView) {
+define('bitstar/id', function(StringView) {
     'use strict';
 
     function random(sizeInBytes) {

@@ -1,4 +1,4 @@
-define('kademlia/bus', [
+define('bitstar/bus', [
     './message',
     'peerjs',
     'when/when',

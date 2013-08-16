@@ -1,6 +1,6 @@
 /*jshint latedef:false */
 
-define('kademlia/dht', [
+define('bitstar/dht', [
     './id',
     './route_table',
     './bus',

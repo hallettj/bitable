@@ -3,7 +3,7 @@
 require.config({
     baseUrl: '/',
     paths: {
-        'kademlia': 'src',
+        'bitstar': 'src',
         'when': 'node_modules/when',
         //'when': 'node_modules/when/when',
         //'when/timed': 'node_modules/when/timed',
@@ -25,7 +25,7 @@ require.config({
     enforceDefine: true
 });
 
-require(['kademlia/dht', 'kademlia/id', 'jquery'], function(DHT, Id, $) {
+require(['bitstar/dht', 'bitstar/id', 'jquery'], function(DHT, Id, $) {
     'use strict';
 
     var id = param('id') || Id.random();

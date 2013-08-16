@@ -3,7 +3,7 @@
 require.config({
     baseUrl: '/',
     paths: {
-        'kademlia': 'src',
+        'bitstar': 'src',
         'when': 'node_modules/when',
         //'when': 'node_modules/when/when',
         //'when/timed': 'node_modules/when/timed',
@@ -26,8 +26,8 @@ require.config({
 });
 
 require([
-    'kademlia/dht',
-    'kademlia/id',
+    'bitstar/dht',
+    'bitstar/id',
     'when/when',
     'when/timed',
     'jquery',

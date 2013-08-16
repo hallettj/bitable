@@ -1,4 +1,4 @@
-define('kademlia/route_table', ['./id'], function(Id) {
+define('bitstar/route_table', ['./id'], function(Id) {
     'use strict';
 
     function RouteTable(idSelf, idSize, bucketSize) {
