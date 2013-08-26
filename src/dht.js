@@ -14,20 +14,16 @@ define('bitstar/dht', [
     function DHT(opts) {
         opts = _.assign({}, defaults, opts);
 
-        var idSelf = opts.id || Id.random(opts.idSize)
-          , alpha  = opts.alpha
+        var idSelf     = opts.id || Id.random(opts.idSize)
+          , alpha      = opts.alpha
           , routeTable = new RouteTable(idSelf, opts.idSize, opts.bucketSize)
           , bus        = new Bus(idSelf, opts.brokerInfo)
         ;
 
-        bus.messages.onValue(react);
-        bus.connectEvents.onValue(function(peer) {
-            routeTable.insert(peer);
-        });
-        bus.closeEvents.onValue(function(id) {
-            // TODO: attempt to reconnect?  handle that in bus?
-            routeTable.remove(id);
-        });
+        bus.queries.onValue(react);
+        bus.connects.onValue(routeTable.insert);
+        bus.disconnects.onValue(routeTable.remove);
+        // TODO: attempt to reconnect?  handle that in bus?
 
         setInterval(function() {
             routeTable.getNodes().forEach(function(node) {
@@ -130,9 +126,11 @@ define('bitstar/dht', [
         //    return events;
         //}
 
-        function react(incoming) {
-            var msg     = incoming[0]
-              , respond = incoming[1];
+        // TODO: Move responses for built-in query-types into a separate
+        // module.  Make it possible to substitute different behavior.
+        function react(query) {
+            var msg     = query.message
+              , respond = query.respond;
             if (msg.q === 'ping') {
                 reactPing(msg, respond);
             }
@@ -165,16 +163,17 @@ define('bitstar/dht', [
         }
 
         return {
-            bootstrap: bootstrap,
-            messages:  bus.messages,
-            connectEvents: bus.connectEvents,
-            closeEvents: bus.closeEvents,
+            bootstrap:   bootstrap,
+            events:      bus.events,
+            connects:    bus.connects,
+            queries:     bus.queries,
+            disconnects: bus.disconnects,
             routeTable:  routeTable,
-            ping:      ping,
-            findNode:  findNode,
-            query:     query,
-            connect:   connect,
-            destroy:   destroy
+            ping:        ping,
+            findNode:    findNode,
+            query:       query,
+            connect:     connect,
+            destroy:     destroy
         };
     }
 

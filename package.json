@@ -39,6 +39,7 @@
     "peerjs": "~0.2.0",
     "when": "~2.2.1",
     "baconjs": "~0.6.8",
-    "bencode-js": "0.0.7"
+    "bencode-js": "0.0.7",
+    "mori": "~0.2.1"
   }
 }

@@ -11,7 +11,7 @@ require.config({
         'Bacon': 'node_modules/baconjs/dist/Bacon',
         'peerjs': 'node_modules/peerjs/dist/peer',
         'bencode-js': 'node_modules/bencode-js/bencode',
-        'stringview': 'lib/stringview',
+        'mori': 'node_modules/mori/mori',
         'jquery': 'lib/jquery/jquery'
     },
     shim: {

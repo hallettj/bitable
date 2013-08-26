@@ -11,7 +11,7 @@ require.config({
         'Bacon': 'node_modules/baconjs/dist/Bacon',
         'peerjs': 'node_modules/peerjs/dist/peer',
         'bencode-js': 'node_modules/bencode-js/bencode',
-        'stringview': 'lib/stringview',
+        'mori': 'node_modules/mori/mori',
         'jquery': 'lib/jquery/jquery'
     },
     shim: {
@@ -50,8 +50,8 @@ require([
     });
 
     (function syncStats() {
-        var connects = dht.connectEvents;
-        var disconnects = dht.closeEvents;
+        var connects = dht.connects;
+        var disconnects = dht.disconnects;
         var connectionEvents = connects.merge(disconnects);
 
         connectionEvents.onValue(function() {
@@ -90,9 +90,9 @@ require([
 
     $('.joinLink').prop('href', makeJoinLink());
 
-    dht.messages.onValue(function(incoming) {
-        var msg     = incoming[0]
-          , respond = incoming[1]
+    dht.queries.onValue(function(query) {
+        var msg     = query.message
+          , respond = query.respond
           , params  = msg.a
           , token   = msg && msg.a && params.token;
         if (msg.q === 'broadcast' && token) {
@@ -275,17 +275,15 @@ require([
         }]);
     }
 
-    dht.connectEvents.onValue(function(peer) {
-        var msg = "connected to "+ peer.id;
+    dht.connects.onValue(function(peer) {
         console.log('connection', peer.id, peer);
     });
 
-    dht.closeEvents.onValue(function(id) {
-        var msg = "lost connection to"+ id;
+    dht.disconnects.onValue(function(id) {
         console.log('lost connection', id);
     });
 
-    dht.messages.onError(function(err) {
+    dht.events.onError(function(err) {
         console.error(err);
     });
 
