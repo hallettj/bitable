@@ -5,10 +5,12 @@ define('bitstar/dht', [
     './route_table',
     './bus',
     './message',
+    './find_node',
     'lodash',
     'when/when',
-    'Bacon'
-], function(Id, RouteTable, Bus, m, _, when, Bacon) {
+    'Bacon',
+    'mori'
+], function(Id, RouteTable, Bus, m, find_node, _, when, Bacon, mori) {
     'use strict';
 
     function DHT(opts) {
@@ -39,7 +41,7 @@ define('bitstar/dht', [
 
         function bootstrap(peers) {
             return when.any(peers.map(connect)).then(function() {
-                findNode(idSelf).onValue(connect);
+                find_node.execute(routeTable, alpha, bus.query, idSelf).onValue(connect);
             });
         }
 
@@ -56,53 +58,12 @@ define('bitstar/dht', [
             });
         }
 
-        function ping(peer) {
-            return bus.query(peer, m.ping(idSelf));
-        }
-
-        function findNode(target) {
-            return new Bacon.EventStream(function(subscriber) {
-                var startPeers = routeTable.closest(target).slice(0, alpha);
-                for (var i = 0; i < alpha; i += 1) {
-                    findNode_(target, subscriber, startPeers.slice(i, i+1));
-                }
-                return function unsubscribe() {};
-            });
-        }
-
         function query(peer, type, params) {
             return bus.query(peer, m.query(type, params));
         }
 
-        function findNode_(target, subscriber, peers, lastDist) {
-            if (peers.length < 1) {
-                return when.reject('out of peers');
-            }
-
-            return bus.query(peers[0], m.find_node(idSelf, target)).then(
-            function(resp) {
-                var nodes = resp.r.nodes.sort(function(a, b) {
-                    return Id.compare(Id.dist(target, a.id), Id.dist(target, b.id));
-                }).filter(function(node) {
-                    return !lastDist || Id.compare(Id.dist(node.id, target), lastDist) < 0;
-                });
-                var closest = nodes.length && Id.dist(nodes[0].id, target);
-                if (nodes.length && Id.equals(nodes[0].id, target)) {
-                    subscriber(new Bacon.Next(nodes[0]));
-                    subscriber(new Bacon.End());
-                    return nodes[0];
-                }
-                else {
-                    nodes.forEach(function(node) {
-                        subscriber(new Bacon.Next(node));
-                    });
-                    return findNode_(target, subscriber, nodes, closest || lastDist);
-                }
-            },
-            function() {
-                // backtrack
-                return findNode_(target, subscriber, peers.slice(1), lastDist);
-            });
+        function ping(peer) {
+            return bus.query(peer, m.ping(idSelf));
         }
 
         function checkHealth(peer, n) {
@@ -135,30 +96,13 @@ define('bitstar/dht', [
                 reactPing(msg, respond);
             }
             else if (msg.q === 'find_node') {
-                reactFindNode(msg, respond);
+                find_node.react(idSelf, routeTable, query);
             }
         }
 
         function reactPing(msg, respond) {
             respond({
                 id: idSelf
-            });
-        }
-
-        function reactFindNode(msg, respond) {
-            var origin = msg.a.id;
-            var target = msg.a.target;
-            // When a node joins it does a find_node query on itself.
-            // So exclude the querying node from results.
-            var results = routeTable.closest(target).filter(function(peer) {
-                return Id.compare(peer.id, origin) !== 0;
-            });
-            if (results.length > 0 && Id.compare(results[0].id, target) === 0) {
-                results = results.slice(0, 1);
-            }
-            respond({
-                id: idSelf,
-                nodes: results
             });
         }
 
