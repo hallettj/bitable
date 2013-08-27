@@ -29,6 +29,8 @@ define('bitstar/find_node', [
         });
     }
 
+    // shared peer pool, no side effects, waits for all threads to
+    // converge at each iteration
     function execute(idSelf, routeTable, alpha, query, target) {
         var startPeers = routeTable.closest(target).slice(0, alpha);
 
@@ -45,13 +47,13 @@ define('bitstar/find_node', [
 
             var threads = mori.take(alpha, state).map(thread);
 
-            var rec = Bacon.combineAll(threads).fold(state, function(state_, resp) {
+            var rec = Bacon.mergeAll(threads).fold(state, function(state_, resp) {
                 return mori.into(state_, resp.results);
             })
             .onValue(helper);
             // TODO: waits at each iteration for all threads to finish
 
-            return Bacon.combineAll(threads).flatMap(function(resp) {
+            return Bacon.mergeAll(threads).flatMap(function(resp) {
                 return Bacon.fromArray(resp.results);
             }).merge(rec);
         }
@@ -68,6 +70,48 @@ define('bitstar/find_node', [
             }), startPeers)
         );
     }
+
+    // shared peer pool, side effects, does not wait for convergence,
+    // if match is found may not be last event emitted?
+    function execute(idSelf, routeTable, alpha, query, target) {
+        var startPeers = routeTable.closest(target).slice(0, alpha);
+        var complete   = false;
+
+        var state = mori.into(mori.sorted_set_by(function(a, b) {
+            return Id.compare(Id.dist(target, a.id), Id.dist(target, b.id));
+        }), startPeers);
+
+        var threads = startPeers.map(thread);
+
+        function thread() {
+            var closest = mori.first(state);
+            state = mori.drop(1, state);
+
+            if (!closest || complete) {
+                return Bacon.never();
+            }
+
+            if (Id.compare(closest.id, target) === 0) {
+                complete = true;
+                return Bacon.once(closest);
+            }
+
+            // TODO: make recursive call on error in query
+            return Bacon.merge(
+                Bacon.once(closest),
+                Bacon.fromPromise(
+                    query(closest, m.find_node(idSelf, target))
+                )
+                .flatMap(function(resp) {
+                    state = mori.into(resp.results);
+                    return thread();
+                })
+            );
+        }
+
+        return Bacon.mergeAll(threads);
+    }
+
 
     function findNode(target) {
         return new Bacon.EventStream(function(subscriber) {
