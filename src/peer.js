@@ -6,15 +6,17 @@ define('bitstar/peer', [
 ], function(when, t, Bacon, _) {
     'use strict';
 
-    function Peer(broker, conn) {
+    function Peer(broker, conn, opts) {
         var self = {};
         var id = conn.peer;
+        var timeout = (opts && opts.timeout) || 1000;
         var openEvent = new Bacon.Next({
             type: 'open',
             peer: self,
         });
 
         var stream = new Bacon.EventStream(function(subscriber) {
+            var t;
             if (conn.open) {
                 console.log('connection already open', id);
                 subscriber(openEvent);
@@ -23,7 +25,13 @@ define('bitstar/peer', [
                 conn.on('open', function() {
                     console.log('connection open', id);
                     subscriber(openEvent);
+                    clearTimeout(t);
                 });
+                if (timeout > 0) {
+                    t = setTimeout(function() {
+                        subscriber(new Bacon.Error('timeout connecting to '+ id));
+                    }, timeout);
+                }
             }
             conn
             .on('data', function(data) {
