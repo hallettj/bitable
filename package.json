@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "lodash": "~1.3.1",
-    "peerjs": "~0.2.0",
+    "peerjs": "~0.3.2",
     "when": "~2.2.1",
     "baconjs": "~0.6.8",
     "bencode-js": "0.0.7",

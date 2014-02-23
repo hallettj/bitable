@@ -10,34 +10,65 @@ define('bitstar/dht', [
     'when/when',
     'Bacon',
     'mori'
-], function(Id, RouteTable, Bus, m, find_node, _, when, Bacon, mori) {
+], function(Id, Route, Bus, Message, find_node, _, when, Bacon, mori) {
     'use strict';
+
+    function buildTable(idSelf, opts) {
+        return Bacon.constant(Route.create(idSelf, opts.idSize, opts.bucketSize));
+    }
+
+    function trackConnections(bus, table) {
+        var withConnects = Bacon.combineWith(Route.insert, table,        bus.connects);
+        var withDisconns = Bacon.combineWith(Route.remove, withConnects, bus.disconnects);
+        // TODO: attempt to reconnect?  handle that in bus?
+        return withDisconns;
+    }
+
+    function withHealthChecks(time, bus, routeTable) {
+        // This callback runs every `time` milliseconds.
+        var fails = routeTable.sampledBy(interval(time)).flatMap(function(table) {
+            var failStreams = Route.peers(table).map(function(peer) {
+                return Bacon.fromPromise(checkHealth(peer, 3))
+                .flatMap(function() {
+                    log.info('successful health check', peer);
+                    // suppresses events from successful health checks
+                    return Bacon.never();
+                })
+                .mapError(function(err) {
+                    log.info('bad health check', peer, err);
+                    return peer;
+                });
+            });
+            return Bacon.mergeAll(failStreams);
+        });
+
+        return Bacon.combineWith(function(table, peer) {
+            log.info('disconnecting', peer);
+            bus.disconnect(peer);
+            log.info('removed from route table', peer);
+            return Route.remove(table, peer);
+        }, routeTable, fails);
+    }
+
+    function bootstrap(dht, initPeers) {
+        return when.any(initPeers.map(connect)).then(function() {
+            find_node.execute(routeTable, alpha, bus.query, idSelf).onValue(connect);
+        });
+    }
 
     function DHT(opts) {
         opts = _.assign({}, defaults, opts);
 
         var idSelf     = opts.id || Id.random(opts.idSize)
           , alpha      = opts.alpha
-          , routeTable = new RouteTable(idSelf, opts.idSize, opts.bucketSize)
           , bus        = new Bus(idSelf, opts.brokerInfo)
+          , routeTable = _.compose(
+                _.partial(withHealthChecks, 60000, bus),
+                _.partial(trackConnections, bus)
+          )(buildTable(idSelf, opts))
         ;
 
         bus.queries.onValue(react);
-        bus.connects.onValue(routeTable.insert);
-        bus.disconnects.onValue(routeTable.remove);
-        // TODO: attempt to reconnect?  handle that in bus?
-
-        setInterval(function() {
-            routeTable.getNodes().forEach(function(node) {
-                checkHealth(node, 3).then(function() {
-                    // connection is good
-                }, function(err) {
-                    console.log('bad health check, disconnecting', node.id, err);
-                    routeTable.remove(node.id);
-                    bus.disconnect(node.id);
-                });
-            });
-        }, 60000);
 
         function bootstrap(peers) {
             return when.any(peers.map(connect)).then(function() {
@@ -59,11 +90,11 @@ define('bitstar/dht', [
         }
 
         function query(peer, type, params) {
-            return bus.query(peer, m.query(type, params));
+            return bus.query(peer, Message.query(type, params));
         }
 
         function ping(peer) {
-            return bus.query(peer, m.ping(idSelf));
+            return bus.query(peer, Message.ping(idSelf));
         }
 
         function checkHealth(peer, n) {
@@ -134,6 +165,14 @@ define('bitstar/dht', [
         bucketSize: 8,
         alpha: 3  // number of lookup queries to run in parallel
     };
+
+    var log = {
+        info: console.log  // TODO: set log levels somewhere
+    };
+
+    function interval(time /* milliseconds */) {
+        return Bacon.constant(1).sample(time);
+    }
 
     return DHT;
 });
