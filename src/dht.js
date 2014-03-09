@@ -51,9 +51,13 @@ define('bitstar/dht', [
     }
 
     function bootstrap(dht, initPeers) {
-        return when.any(initPeers.map(connect)).then(function() {
+        return when.any(initPeers.map(_.partial(connect, dht))).then(function() {
             find_node.execute(routeTable, alpha, bus.query, idSelf).onValue(connect);
         });
+    }
+
+    function connect(dht, peer) {
+        return dht.bus.connect(peer);
     }
 
     function DHT(opts) {
