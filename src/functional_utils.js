@@ -3,24 +3,24 @@ define('bitstar/functional_utils', [
 ], function(_) {
     'use strict';
 
-    function constructor(name, fn) {
-        var c = function() {
-            var v = fn.apply(null, arguments);
-            v._args = Object.freeze(Array.prototype.slice.call(arguments));
-            _.assign(v, typeLabel);
+    function constructor(type, name, fields) {
+        return function c() {
+            var args = Object.freeze(Array.prototype.slice.call(arguments));
+            var v    = {};
+            fields.forEach(function(field, i) {
+                v[field] = args[i];
+            });
+            v._args       = args;
+            v.constructor = c;
+            v.type        = type;
             return Object.freeze(v);
         };
-        var typeLabel = Object.freeze({
-            constructor: c,
-            type: c
-        });
-        return c;
     }
 
     function data(constructors) {
         var res = {};
         Object.keys(constructors).forEach(function(k) {
-            res[k] = constructor(k, constructors[k]);
+            res[k] = constructor(res, k, constructors[k]);
         });
         return Object.freeze(res);
     }
@@ -60,16 +60,23 @@ define('bitstar/functional_utils', [
     }
 
     function modify(table, key, val) {
-        var updated = {};
+        var updated = _.assign({}, table);
         updated[key] = val;
-        _.assign(updated, table);
         return Object.freeze(updated);
     }
 
+    function modifyMany(table, changes) {
+        var fields = Object.keys(changes);
+        return fields.reduce(function(t, field) {
+            return modify(t, field, changes[field]);
+        }, table);
+    }
+
     return {
-        data:   data,
-        match:  match,
-        modify: modify
+        data:       data,
+        match:      match,
+        modify:     modify,
+        modifyMany: modifyMany
     };
 });
 

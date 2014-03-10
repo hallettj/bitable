@@ -3,38 +3,32 @@ define('bitstar/connection_pool', [
     './peer_connection',
     './message',
     './functional_utils',
+    'lodash',
     'peerjs',
     'when/when',
     'when/timed',
     'Bacon'
-], function(BrokerPool, PeerConnection, M, F, Peer, when, t, Bacon) {
+], function(BrokerPool, PeerConnection, M, F, _, Peer, when, t, Bacon) {
     'use strict';
 
     /** event types **/
 
-    var InputEvents = F.data({
-        connectTo: function(peerInfo) {
-            return {
-                peerInfo: peerInfo
-            };
-        },
-        disconnectFrom: function(peer) {
-            return {
-                peer: peer
-            };
-        },
-        brokerEvent: function(brokerEvent) {
-            return {
-                brokerEvent: brokerEvent
-            };
-        }
+    var InputEvent = F.data({
+        connectTo:      ['peerInfo'],
+        disconnectFrom: ['peer'],
+        brokerEvent:    ['event']
     });
 
     /** implementation **/
 
     function create(idSelf, inputs) {
         var brokerInputs = translateInputs(inputs);
-        var brokerPool   = BrokerPool.create(idSelf, brokerInputs);
+
+        var brokerPool = _.compose(
+            _.partial(BrokerPool.removeUnused, [primary], 30000),
+            BrokerPool.removeOnClose
+        )(BrokerPool.create(idSelf, brokerInputs));
+
         var events       = peerEvents(idSelf, brokerPool);
         return Object.freeze({
             events: events
@@ -42,7 +36,7 @@ define('bitstar/connection_pool', [
     }
 
     function translateInputs(inputs) {
-        return inputs.flatMap(F.match(InputEvents, {
+        return inputs.flatMap(F.match(InputEvent, {
             connectTo: function(peerInfo) {
                 return BrokerPool.InputEvents.connectTo(
                     getBrokerInfo(peerInfo)
@@ -59,7 +53,7 @@ define('bitstar/connection_pool', [
     }
 
     function peerEvents(idSelf, brokers, inputs) {
-        return inputs.flatMap(F.match(InputEvents, {
+        return inputs.flatMap(F.match(InputEvent, {
             connectTo: function(peerInfo) {
                 return connectToPeer(brokers, peerInfo);
 

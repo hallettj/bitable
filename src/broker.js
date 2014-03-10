@@ -7,24 +7,10 @@ define('bitstar/broker', [
 ], function(Peer, F, PeerJs, Bacon, _) {
     'use strict';
 
-    var Events = F.data({
-        connection: function(broker, conn) {
-            return {
-                dir:    'incoming',
-                peer:   Peer.create(conn.id, conn, broker),
-                broker: broker
-            };
-        },
-        open: function(broker) {
-            return {
-                broker: broker
-            };
-        },
-        close: function(broker) {
-            return {
-                broker: broker
-            };
-        }
+    var Event = F.data({
+        connection: ['peer', 'broker'],
+        open:       ['broker'],
+        close:      ['broker']
     });
 
     function connect(idSelf, options) {
@@ -48,17 +34,17 @@ define('bitstar/broker', [
         var conn = broker.conn;
         var evts = new Bacon.EventStream(function(subscriber) {
             subscriber(new Bacon.Next(function() {
-                return Events.brokerConnection(broker);
+                return Event.connection(broker);
             }));
 
             conn.on('connection', function(conn) {
                 subscriber(new Bacon.Next(function() {
-                    return Events.peerConnection(broker, conn);
+                    return Event.peerConnection(broker, conn);
                 }));
             });
             conn.on('open', function() {
                 subscriber(new Bacon.Next(function() {
-                    return Events.open(broker);
+                    return Event.open(broker);
                 }));
             });
             conn.on('error', function(err) {
@@ -66,7 +52,7 @@ define('bitstar/broker', [
             });
             conn.on('close', function() {
                 subscriber(new Bacon.Next(function() {
-                    return Events.close(broker);
+                    return Event.close(broker);
                 }));
                 subscriber(new Bacon.End());
             });
@@ -144,7 +130,7 @@ define('bitstar/broker', [
     }
 
     return {
-        Events:     Events,
+        Events:     Event,
         connect:    connect,
         disconnect: disconnect
     };

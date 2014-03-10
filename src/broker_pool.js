@@ -10,17 +10,9 @@ define('bitstar/broker_pool', [
 
     /** event types **/
 
-    var InputEvents = F.data({
-        connectTo: function(brokerInfo) {
-            return {
-                brokerInfo: brokerInfo
-            };
-        },
-        disconnectFrom: function(broker) {
-            return {
-                broker: broker
-            };
-        }
+    var InputEvent = F.data({
+        connectTo:      ['brokerInfo'],
+        disconnectFrom: ['broker']
     });
 
     /** implementation **/
@@ -28,142 +20,189 @@ define('bitstar/broker_pool', [
     // TODO: Automatically disconnect from brokers that have not been
     // used recently.
 
+    // type BrokerPool = {
+    //     brokers: Bacon.Property<mori.hash_map<BrokerKey, Broker>>,
+    //     events:  Bacon.EventStream<Broker.Event>
+    // }
+
+    // :: (bitstar/id.Id, Bacon.EventStream<InputEvent>) -> BrokerPool
     function create(idSelf, inputs) {
-        var bEvents = brokerEvents(idSelf, inputs);
+        var brokers = brokersProperty(idSelf, inputs);
+        var events  = brokerEvents(brokers);
         return Object.freeze({
-            idSelf:  idSelf,
-            brokers: mori.hash_map(),
-            events:  bEvents
+            brokers: brokers,
+            events:  events
         });
     }
 
-    // :: (bitstar/broker_pool, brokerInfo) -> bitstar/broker
-    function connect(pool, brokerInfo) {
-        var key     = keyFor(brokerInfo);
-        var brokers = pool.brokers;
-        if (mori.has_key(brokers, key)) {
-            return pool;
-        }
-        else {
-            var broker  = Broker.connect(pool.idSelf, brokerInfo);
-            var promise = when.promise(function(resolve, reject) {
-                broker.events.onEnd(reject);
-                broker.onValue('open', function() {
-                    resolve(broker);
-                });
-            });
-            return F.modify(pool, 'brokers', mori.assoc(brokers, key, promise));
-        }
-
-    }
-
-    // :: (mori.vector, peerInfo) -> broker
-    function getBroker(brokers, peerInfo) {
-        var key = keyFor(peerInfo);  // TODO: Does peerInfo have superset of properties of brokerInfo?
+    // :: (mori.hash_map<BrokerKey, Broker>, brokerInfo) -> (Broker | falsy)
+    function getBroker(brokers, brokerInfo) {
+        var key = keyFor(brokerInfo);
         return mori.get(brokers, key);
     }
 
-    function hasBroker(brokers, peerInfo) {
-        var key = keyFor(peerInfo);  // TODO: Does peerInfo have superset of properties of brokerInfo?
+    // :: (mori.hash_map<BrokerKey, Broker>, brokerInfo) -> boolean
+    function hasBroker(brokers, brokerInfo) {
+        var key = keyFor(brokerInfo);
         return mori.has_key(brokers, key);
     }
 
-    function brokersProperty(idSelf, brokerEvents) {
-        return brokerEvents.scan(mori.hash_map(), function(brokers, event) {
-            return F.match(Broker.Events, {
-                brokerConnection: function(broker) {
-                    var key = keyFor(broker);
-                    return mori.assoc(brokers, key, broker);
+    // Modifies a pool to remove brokers from the pool when a 'close'
+    // event is received.  Without this behavior broker connections that
+    // are closed from the remote side will remain in the pool, despite
+    // being unusable.
+    //
+    // :: BrokerPool -> BrokerPool
+    function removeOnClose(pool) {
+        var closeEvents = pool.events.filter(function(event) {
+            return event.constructor === Broker.Event.close;
+        }).map(function(event) {
+            return Change.removed(event.broker);
+        });
+        var allChanges = Bacon.mergeAll(changes(pool.brokers), closeEvents);
+        var brokers_ = allChanges.scan(mori.hash_map(), function(brokers, event) {
+            return F.match(Change, {
+                added: function(broker) {
+                    return mori.assoc(brokers, keyFor(broker), broker);
                 },
-                close: function(broker) {
-                    var key = keyFor(broker);
+                removed: function(broker) {
+                    return mori.dissoc(brokers, keyFor(broker));
+                }
+            })(event);
+        });
+        return F.modify(pool, 'brokers', brokers_);
+    }
+
+    // Modifies a pool to remove brokers that have not been used in
+    // a given time interval.  Exceptions are mode for a given list
+    // brokers.
+    //
+    // :: (BrokerPool, [brokerInfo], number) -> BrokerPool
+    function removeUnused(exceptions, timeout, pool) {
+        var lastUsed = pool.events.scan(mori.hash_map, function(m, event) {
+            var broker = event.broker;
+            var key    = keyFor(broker);
+            var now    = new Date();
+            var last   = mori.get(m, key);
+            if (event.constructor === Broker.Event.close) {
+                return mori.dissoc(m, key);
+            }
+            else {
+                if (now - last > timeout) {
+                    // TODO: slightly hacky
+                    Broker.disconnect(broker);
+                }
+                return mori.assoc(m, key, now);
+            }
+        });
+        return F.modify(pool, 'lastUsed', lastUsed);
+    }
+
+    // // TODO: maybe this format?
+    // function removeUnused(exceptions, timeout) {
+    //     return function(inputs, next) {
+    //         var inputs_ = [modify inputs somehow];
+    //         var pool    = next(inputs_);
+    //         var pool_   = [modify pool somehow];
+    //         return pool_;
+    //     };
+    // }
+
+    // :: (bitstar/id, Bacon.EventStream<InputEvent>) -> Bacon.Property<mori.hash_map<BrokerKey, Broker>>
+    function brokersProperty(idSelf, inputs) {
+        return inputs.scan(mori.hash_map(), function(brokers, event) {
+            return F.match(InputEvent, {
+                connectTo: function(brokerInfo) {
+                    var key, broker;
+                    if (hasBroker(brokers, brokerInfo)) {
+                        return brokers;
+                    }
+                    else {
+                        key    = keyFor(brokerInfo);
+                        broker = Broker.connect(idSelf, brokerInfo);
+                        return mori.assoc(brokers, key, broker);
+                    }
+                },
+                disconnectFrom: function(broker) {
+                    var key = keyFor(broker);  // TODO: broker vs. brokerInfo
+                    Broker.disconnect(broker);
                     return mori.dissoc(brokers, key);
-                },
-                _: function() {
-                    return brokers;
                 }
             })(event);
         });
     }
 
-    function brokerEvents(idSelf, inputs) {
-        return inputs.flatMap(F.match(InputEvents, {
-            // TODO: Can this be idempotent?
-            connectTo: function(brokerInfo) {
-                var broker = Broker.connect(idSelf, brokerInfo);
-                return broker.events;
-            },
-
-            // TODO: This is ugly.
-            disconnectFrom: function(broker) {
-                Broker.disconnect(broker);
-                return Bacon.never();
-            }
-        }));
+    // :: Bacon.Property<mori.hash_map<BrokerKey, Broker>> -> Bacon.EventStream<Broker.Event>
+    function brokerEvents(brokersProp) {
+        return added(brokersProp).flatMap(function(broker) {
+            return broker.events;
+        });
     }
 
-    function Pool(idSelf, opts) {
-        var brokers       = mori.hash_map();
-        var events        = new Bacon.Bus();
-        var brokerTimeout = (opts && opts.keepOpen) || 30000;
-
-        function connect(brokerInfo) {
-            var key = keyFor(brokerInfo);
-            return mori.get(brokers, key) || connect_(brokerInfo, key, true);
-        }
-
-        function withBroker(brokerInfo, fn) {
-            var key = keyFor(brokerInfo);
-            var broker = mori.get(brokers, key) || connect_(brokerInfo, key);
-            return when.promise(function(resolve, reject, notify) {
-                broker.events.onEnd(reject);
-                fn(broker).then(resolve, reject, notify);
-            });
-        }
-
-        function connect_(brokerInfo, key, keepOpen) {
-            var broker = new Broker(idSelf, brokerInfo), timeout;
-            events.plug(broker.events);
-            brokers = mori.assoc(brokers, key, broker);
-
-            broker.events.onEnd(function() {
-                if (mori.get(brokers, key) === broker) {
-                    brokers = mori.dissoc(brokers, key);
-                }
-            });
-
-            if (!keepOpen) {
-                disconnect();
-                broker.events.onValue(function(v) {
-                    if (v.type === 'connection') {
-                        disconnect();
-                    }
-                });
-            }
-
-            function disconnect() {
-                clearTimeout(timeout);
-                timeout = setTimeout(broker.disconnect, brokerTimeout);
-            }
-
-            return broker;
-        }
-
-        return {
-            connect:    connect,
-            withBroker: withBroker,
-            events:     events
-        };
+    // Emits an event when a broker is added to the underlying brokers
+    // property.
+    //
+    // :: Bacon.Property<mori.hash_map<BrokerKey, Broker>> -> Bacon.EventStream<Broker>
+    function added(brokersProp) {
+        return changes(brokersProp).filter(function(event) {
+            return event.constructor === Change.added;
+        }).map('.broker');
     }
 
+    // Emits an event when a broker is removed from the underlying brokers
+    // property.
+    //
+    // :: Bacon.Property<mori.hash_map<BrokerKey, Broker>> -> Bacon.EventStream<Broker>
+    function removed(brokersProp) {
+        return changes(brokersProp).filter(function(event) {
+            return event.constructor === Change.removed;
+        }).map('.broker');
+    }
+
+    var Change = F.data({
+        added:   ['broker'],
+        removed: ['broker']
+    });
+
+    // Emits an event when a broker is removed from the underlying brokers
+    // property.
+    //
+    // :: Bacon.Property<mori.hash_map<BrokerKey, Broker>> -> Bacon.EventStream<Change>
+    function changes(brokersProp) {
+        return brokersProp.changes().scan(mori.hash_map(), function(prev, brokers) {
+            var prevKeys    = mori.set(mori.keys(prev));
+            var newKeys     = mori.set(mori.keys(brokers));
+            var allKeys     = mori.union(prevKeys, newKeys);
+            var addedKeys   = mori.difference(allKeys, prevKeys);
+            var removedKeys = mori.difference(allKeys, newKeys);
+            return Object.freeze({
+                added:   getBrokers(brokers, addedKeys),
+                removed: getBrokers(prev,    removedKeys)
+            });
+            function getBrokers(bs, keys) {
+                return mori.into_array(mori.map(function(key) {
+                    return mori.get(bs, key);
+                }, keys));
+            }
+        })
+        .flatMap(function(cs) {
+            var addEvents = cs.added.map(Change.added);
+            var remEvents = cs.removed.map(Change.removed);
+            return Bacon.fromArray(addEvents.concat(remEvents));
+        });
+    }
+
+    // :: brokerInfo -> BrokerKey
     function keyFor(brokerInfo) {
         return mori.vector(brokerInfo.host, brokerInfo.port);
     }
 
     return {
-        InputEvents: InputEvents,
-        create:      create,
-        get:         getBroker,
-        has:         hasBroker
+        InputEvent:    InputEvent,
+        create:        create,
+        removeOnClose: removeOnClose,
+        removeUnused:  removeUnused,
+        get:           getBroker,
+        has:           hasBroker
     };
 });
