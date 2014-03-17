@@ -1,126 +1,133 @@
-define('bitstar/route_table', [
-    './id',
-    './functional_utils',
-    'mori'
-], function(Id, util, mori) {
-    'use strict';
+import { compare, dist, sigBit } from './id';
+import { modify }                from './functional_utils';
+import {
+    assoc_in,
+    concat,
+    conj,
+    count,
+    disj,
+    last,
+    nth,
+    pop,
+    reduce,
+    sort_by,
+    sorted_set_by,
+    update_in,
+    vector
+} from 'mori';
 
-    function create(idSelf, idSize /* bytes */, bucketSize) {
-        return Object.freeze({
-            idSelf:        idSelf,
-            idSize:        idSize,
-            maxBucketSize: bucketSize,
-            buckets:       mori.vector(createBucket())
-        });
-    }
+export {
+    create,
+    insert,
+    remove,
+    contains,
+    closest,
+    peers
+};
 
-    // Size of ids in bits
-    function bitsize(table) {
-        return table.idSize * 8;
-    }
+function create(idSelf, idSize /* in bytes */, bucketSize) {
+    return Object.freeze({
+        idSelf:        idSelf,
+        idSize:        idSize,
+        maxBucketSize: bucketSize,
+        buckets:       vector(createBucket())
+    });
+}
 
-    function insert(table, peer) {
-        if (contains(table, peer)) { return table; }
+// Size of ids in bits
+function bitsize(table) {
+    return table.idSize * 8;
+}
 
-        var id          = peer.id
-          , index       = getBucketIndex(table, id)
-          , bucket      = mori.nth(table.buckets, index)
-          , bucketSize  = mori.count(bucket)
-          , bucketCount = mori.count(table.buckets);
-        if (bucketSize >= table.maxBucketSize) {
-            if (index === bucketCount - 1 && index < bitsize(table) - 1) {
-                return insert(split(table), peer);
-            }
-            // TODO: check for bad peers to replace or push peer
-            // into reserve list
+function insert(table, peer) {
+    if (contains(table, peer)) { return table; }
+
+    var id          = peer.id
+      , index       = getBucketIndex(table, id)
+      , bucket      = nth(table.buckets, index)
+      , bucketSize  = count(bucket)
+      , bucketCount = count(table.buckets);
+    if (bucketSize >= table.maxBucketSize) {
+        if (index === bucketCount - 1 && index < bitsize(table) - 1) {
+            return insert(split(table), peer);
         }
-        else {
-            // New peer is pushed onto the end of the bucket.
-            // Buckets wind up ordered by length of time peers have
-            // stayed connected.
-            return util.modify(table, 'buckets',
-                mori.assoc_in(table.buckets, [index], mori.conj(bucket, peer)));
-            //bucket.lastChange = new Date();  // TODO:
-        }
+        // TODO: check for bad peers to replace or push peer
+        // into reserve list
     }
-
-    function remove(table, peerOrId) {
-        var peer  = toPeer(peerOrId)
-          , index  = getBucketIndex(table, peer.id);
-        mori.update_in(table.buckets, [index], function(bucket) {
-            return mori.disj(bucket, peer);
-        });
-        // TODO: fill position from reserve list
+    else {
+        // New peer is pushed onto the end of the bucket.
+        // Buckets wind up ordered by length of time peers have
+        // stayed connected.
+        return modify(table, 'buckets',
+            assoc_in(table.buckets, [index], conj(bucket, peer)));
+        //bucket.lastChange = new Date();  // TODO:
     }
+}
 
-    function split(table) {
-        var oldBucket  = mori.last(table.buckets)
-          , newBuckets = mori.conj(
-                mori.pop(table.buckets),
-                createBucket(),
-                createBucket()
-          )
-          , newTable = util.modify(table, 'buckets', newBuckets);
-        return mori.reduce(insert, newTable, oldBucket);
-    }
+function remove(table, peerOrId) {
+    var peer  = toPeer(peerOrId)
+      , index = getBucketIndex(table, peer.id);
+    update_in(table.buckets, [index], bucket => disj(bucket, peer));
+    // TODO: fill position from reserve list
+}
 
-    function contains(table, peerOrId) {
-        var peer = toPeer(peerOrId)
-          , peer_ = closest(table, peer)[0];
-        return !!(peer_ && peer_.id === peer.id);
-    }
+function split(table) {
+    var oldBucket  = last(table.buckets)
+      , newBuckets = conj(
+            pop(table.buckets),
+            createBucket(),
+            createBucket()
+        )
+      , newTable = modify(table, 'buckets', newBuckets);
+    return reduce(insert, newTable, oldBucket);
+}
 
-    function closest(table, peerOrId) {
-        var id     = toId(peerOrId)
-          , bucket = getBucket(table, id);
-        return mori.sort_by(function(a, b) {
-            return Id.compare(Id.dist(id, a.id), Id.dist(id, b.id));
-        }, bucket);
-    }
+function contains(table, peerOrId) {
+    var peer  = toPeer(peerOrId)
+      , peer_ = closest(table, peer)[0];
+    return !!(peer_ && peer_.id === peer.id);
+}
 
-    function peers(table) {
-        return mori.concat.apply(null, table.buckets);
-    }
+function closest(table, peerOrId) {
+    var id     = toId(peerOrId)
+      , bucket = getBucket(table, id);
+  return sort_by(
+      (a, b) => compare(dist(id, a.id), dist(id, b.id)),
+      bucket
+  );
+}
 
-    function getBucket(table, peerOrId) {
-        var id    = toId(peerOrId);
-        var index = getBucketIndex(table, id);
-        return mori.nth(table.buckets, index);
-    }
+function peers(table) {
+    return concat(...table.buckets);
+}
 
-    function getBucketIndex(table, peerOrId) {
-        var id    = toId(peerOrId)
-          , dist  = Id.dist(id, table.idSelf)
-          , ord   = Id.sigBit(dist)
-          , pos   = bitsize(table) - ord
-          , index = Math.min(pos, mori.count(table.buckets) - 1);
-        return index;
-    }
+function getBucket(table, peerOrId) {
+    var id    = toId(peerOrId);
+    var index = getBucketIndex(table, id);
+    return nth(table.buckets, index);
+}
 
-    function toPeer(peerOrId) {
-        return peerOrId.id ? peerOrId : { id: peerOrId };
-    }
+function getBucketIndex(table, peerOrId) {
+    var id    = toId(peerOrId)
+      , d     = dist(id, table.idSelf)
+      , pos   = bitsize(table) - sigBit(d)
+      , index = Math.min(pos, count(table.buckets) - 1);
+    return index;
+}
 
-    function toId(peerOrId) {
-        return peerOrId.id ? peerOrId : peerOrId;
-    }
+function toPeer(peerOrId) {
+    return peerOrId.id ? peerOrId : { id: peerOrId };
+}
 
-    function createBucket() {
-        return mori.sorted_set_by(comparePeers);
-        // TODO: record lastChange property
-    }
+function toId(peerOrId) {
+    return peerOrId.id ? peerOrId : peerOrId;
+}
 
-    function comparePeers(a, b) {
-        return Id.compare(a.id, b.id);
-    }
+function createBucket() {
+    return sorted_set_by(comparePeers);
+    // TODO: record lastChange property
+}
 
-    return {
-        create:   create,
-        insert:   insert,
-        remove:   remove,
-        contains: contains,
-        closest:  closest,
-        peers:    peers
-    };
-
-});
+function comparePeers(a, b) {
+    return compare(a.id, b.id);
+}

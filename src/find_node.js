@@ -1,161 +1,169 @@
-define('bitstar/find_node', [
-    './id',
-    './route_table',
-    './bus',
-    './message',
-    'lodash',
-    'when/when',
-    'Bacon',
-    'mori'
-], function(Id, RouteTable, Bus, m, _, when, Bacon, mori) {
-    'use strict';
+import { compare, dist, equals } from './id';
+import RouteTable                from './route_table';
+import M                         from './message';
+import { reject }                from 'when/when';
+import {
+    EventStream,
+    End,
+    Next,
+    fromArray,
+    fromPromise,
+    merge,
+    mergeAll,
+    never,
+    once
+} from 'Bacon';
+import {
+    drop,
+    first,
+    into,
+    sorted_set_by,
+    take
+} from 'mori';
 
-    function react(idSelf, routeTable, query) {
-        var msg     = query.message
-          , respond = query.respond
-          , origin  = msg.a.id
-          , target  = msg.a.target;
-        // When a node joins it does a find_node query on itself.
-        // So exclude the querying node from results.
-        var results = routeTable.closest(target).filter(function(peer) {
-            return Id.compare(peer.id, origin) !== 0;
-        });
-        if (results.length > 0 && Id.compare(results[0].id, target) === 0) {
-            results = results.slice(0, 1);
+export {
+    execute,
+    react
+};
+
+function react(idSelf, routeTable, query) {
+    var msg     = query.message
+      , respond = query.respond
+      , origin  = msg.a.id
+      , target  = msg.a.target;
+    // When a node joins it does a find_node query on itself.
+    // So exclude the querying node from results.
+    var results = routeTable.closest(target).filter(
+        peer => compare(peer.id, origin) !== 0
+    );
+    if (results.length > 0 && compare(results[0].id, target) === 0) {
+        results = results.slice(0, 1);
+    }
+    respond({
+        id: idSelf,
+        nodes: results
+    });
+}
+
+// shared peer pool, no side effects, waits for all threads to
+// converge at each iteration
+function execute(idSelf, routeTable, alpha, query, target) {
+    var startPeers = routeTable.closest(target).slice(0, alpha);
+
+    function helper(state) {
+        var closest = first(state);
+
+        if (!closest) {
+            return never();
         }
-        respond({
-            id: idSelf,
-            nodes: results
-        });
+
+        if (compare(closest.id, target) === 0) {
+            return once(closest);
+        }
+
+        var threads = take(alpha, state).map(thread);
+
+        var rec = mergeAll(threads).fold(
+            state,
+            (state_, resp) => into(state_, resp.results)
+        )
+        .onValue(helper);
+        // TODO: waits at each iteration for all threads to finish
+
+        return mergeAll(threads).flatMap(resp => fromArray(resp.results)).merge(rec);
     }
 
-    // shared peer pool, no side effects, waits for all threads to
-    // converge at each iteration
-    function execute(idSelf, routeTable, alpha, query, target) {
-        var startPeers = routeTable.closest(target).slice(0, alpha);
-
-        function helper(state) {
-            var closest = mori.first(state);
-
-            if (!closest) {
-                return Bacon.never();
-            }
-
-            if (Id.compare(closest.id, target) === 0) {
-                return Bacon.once(closest);
-            }
-
-            var threads = mori.take(alpha, state).map(thread);
-
-            var rec = Bacon.mergeAll(threads).fold(state, function(state_, resp) {
-                return mori.into(state_, resp.results);
-            })
-            .onValue(helper);
-            // TODO: waits at each iteration for all threads to finish
-
-            return Bacon.mergeAll(threads).flatMap(function(resp) {
-                return Bacon.fromArray(resp.results);
-            }).merge(rec);
-        }
-
-        function thread(peer) {
-            return Bacon.fromPromise(
-                query(peer, m.find_node(idSelf, target))
-            );
-        }
-
-        return helper(
-            mori.into(mori.sorted_set_by(function(a, b) {
-                return Id.compare(Id.dist(target, a.id), Id.dist(target, b.id));
-            }), startPeers)
+    function thread(peer) {
+        return fromPromise(
+            query(peer, M.find_node(idSelf, target))
         );
     }
 
-    // shared peer pool, side effects, does not wait for convergence,
-    // if match is found may not be last event emitted?
-    function execute(idSelf, routeTable, alpha, query, target) {
-        var startPeers = routeTable.closest(target).slice(0, alpha);
-        var complete   = false;
+    return helper(
+        into(sorted_set_by(
+            (a, b) => compare(dist(target, a.id), dist(target, b.id))
+        ), startPeers)
+    );
+}
 
-        var state = mori.into(mori.sorted_set_by(function(a, b) {
-            return Id.compare(Id.dist(target, a.id), Id.dist(target, b.id));
-        }), startPeers);
+// shared peer pool, side effects, does not wait for convergence,
+// if match is found may not be last event emitted?
+function execute(idSelf, routeTable, alpha, query, target) {
+    var startPeers = routeTable.closest(target).slice(0, alpha);
+    var complete   = false;
 
-        var threads = startPeers.map(thread);
+    var state = into(sorted_set_by(function(a, b) {
+        return compare(dist(target, a.id), dist(target, b.id));
+    }), startPeers);
 
-        function thread() {
-            var closest = mori.first(state);
-            state = mori.drop(1, state);
+    var threads = startPeers.map(thread);
 
-            if (!closest || complete) {
-                return Bacon.never();
-            }
+    function thread() {
+        var closest = first(state);
+        state = drop(1, state);
 
-            if (Id.compare(closest.id, target) === 0) {
-                complete = true;
-                return Bacon.once(closest);
-            }
-
-            // TODO: make recursive call on error in query
-            return Bacon.merge(
-                Bacon.once(closest),
-                Bacon.fromPromise(
-                    query(closest, m.find_node(idSelf, target))
-                )
-                .flatMap(function(resp) {
-                    state = mori.into(resp.results);
-                    return thread();
-                })
-            );
+        if (!closest || complete) {
+            return never();
         }
 
-        return Bacon.mergeAll(threads);
-    }
-
-
-    function findNode(target) {
-        return new Bacon.EventStream(function(subscriber) {
-            var startPeers = routeTable.closest(target).slice(0, alpha);
-            for (var i = 0; i < alpha; i += 1) {
-                findNode_(target, subscriber, startPeers.slice(i, i+1));
-            }
-            return function unsubscribe() {};
-        });
-    }
-
-    function findNode_(target, subscriber, peers, lastDist) {
-        if (peers.length < 1) {
-            return when.reject('out of peers');
+        if (compare(closest.id, target) === 0) {
+            complete = true;
+            return once(closest);
         }
 
-        return bus.query(peers[0], m.find_node(idSelf, target)).then(
-        function(resp) {
-            var nodes = resp.r.nodes.sort(function(a, b) {
-                return Id.compare(Id.dist(target, a.id), Id.dist(target, b.id));
-            }).filter(function(node) {
-                return !lastDist || Id.compare(Id.dist(node.id, target), lastDist) < 0;
+        // TODO: make recursive call on error in query
+        return merge(
+            once(closest),
+            fromPromise(
+                query(closest, M.find_node(idSelf, target))
+            )
+            .flatMap(resp => {
+                state = into(resp.results);
+                return thread();
+            })
+        );
+    }
+
+    return mergeAll(threads);
+}
+
+
+function findNode(target) {
+    return new EventStream(subscriber => {
+        var startPeers = RouteTable.closest(target).slice(0, alpha);
+        for (var i = 0; i < alpha; i += 1) {
+            findNode_(target, subscriber, startPeers.slice(i, i+1));
+        }
+        return function unsubscribe() {};
+    });
+}
+
+function findNode_(target, subscriber, peers, lastDist) {
+    if (peers.length < 1) {
+        return reject('out of peers');
+    }
+
+    return bus.query(peers[0], M.find_node(idSelf, target)).then(
+    resp => {
+        var nodes = resp.r.nodes.sort(
+            (a, b) => compare(dist(target, a.id), dist(target, b.id))
+        ).filter(
+            node => !lastDist || compare(dist(node.id, target), lastDist) < 0
+        );
+        var closest = nodes.length && dist(nodes[0].id, target);
+        if (nodes.length && equals(nodes[0].id, target)) {
+            subscriber(new Next(nodes[0]));
+            subscriber(new End());
+            return nodes[0];
+        }
+        else {
+            nodes.forEach(node => {
+                subscriber(new Next(node));
             });
-            var closest = nodes.length && Id.dist(nodes[0].id, target);
-            if (nodes.length && Id.equals(nodes[0].id, target)) {
-                subscriber(new Bacon.Next(nodes[0]));
-                subscriber(new Bacon.End());
-                return nodes[0];
-            }
-            else {
-                nodes.forEach(function(node) {
-                    subscriber(new Bacon.Next(node));
-                });
-                return findNode_(target, subscriber, nodes, closest || lastDist);
-            }
-        },
-        function() {
-            // backtrack
-            return findNode_(target, subscriber, peers.slice(1), lastDist);
-        });
-    }
-
-    return {
-        execute: execute,
-        react:   react
-    };
-});
+            return findNode_(target, subscriber, nodes, closest || lastDist);
+        }
+    },
+    // backtrack
+    () => findNode_(target, subscriber, peers.slice(1), lastDist)
+    );
+}

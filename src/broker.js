@@ -1,137 +1,59 @@
-define('bitstar/broker', [
-    './peer',
-    './functional_utils',
-    'peerjs',
-    'Bacon',
-    'lodash'
-], function(Peer, F, PeerJs, Bacon, _) {
-    'use strict';
+import { data }     from './functional_utils';
+import PeerJs       from 'peerjs';
+import Bacon        from 'Bacon';
+import { assign }   from 'lodash';
+import { EventStream, Next } from 'Bacon';
 
-    var Event = F.data({
-        connection: ['peer', 'broker'],
-        open:       ['broker'],
-        close:      ['broker']
-    });
+export {
+    Event,
+    connect,
+    disconnect
+};
 
-    function connect(idSelf, options) {
-        var broker = new PeerJs(idSelf, options);
-        var res    = {
-            conn: broker
-        };
-        res.events = events(res);
-        _.assign(res, options);
-        return Object.freeze(res);
-    }
-
-    // :: bitstar/broker -> ()
-    function disconnect(broker) {
-        // TODO: Does 'close' event fire after this?
-        broker.conn.disconnect();
-    }
-
-    // :: bitstar/broker -> Bacon.EventStream
-    function events(broker) {
-        var conn = broker.conn;
-        var evts = new Bacon.EventStream(function(subscriber) {
-            subscriber(new Bacon.Next(function() {
-                return Event.connection(broker);
-            }));
-
-            conn.on('connection', function(conn) {
-                subscriber(new Bacon.Next(function() {
-                    return Event.peerConnection(broker, conn);
-                }));
-            });
-            conn.on('open', function() {
-                subscriber(new Bacon.Next(function() {
-                    return Event.open(broker);
-                }));
-            });
-            conn.on('error', function(err) {
-                subscriber(new Bacon.Error(err));
-            });
-            conn.on('close', function() {
-                subscriber(new Bacon.Next(function() {
-                    return Event.close(broker);
-                }));
-                subscriber(new Bacon.End());
-            });
-            return function unsubscribe() {
-                conn.disconnect();
-            };
-        }).endOnError();
-        return evts;
-    }
-
-    function Broker(idSelf, options) {
-        var self   = {};
-        var broker = new PeerJs(idSelf, options);
-        var events = new Bacon.EventStream(function(subscriber) {
-            broker.on('connection', function(conn) {
-                subscriber(new Bacon.Next(function() {
-                    return Object.freeze({
-                        type: 'connection',
-                        dir: 'incoming',
-                        peer: Peer.create(conn.id, conn, self),
-                        conn: conn,
-                        broker: self
-                    });
-                }));
-            });
-            broker.on('open', function() {
-                subscriber(new Bacon.Next({
-                    type: 'open',
-                    broker: self
-                }));
-            });
-            broker.on('error', function(err) {
-                subscriber(new Bacon.Error(err));
-            });
-            broker.on('close', function() {
-                subscriber(new Bacon.Next({
-                    type:   'close',
-                    broker: self
-                }));
-                subscriber(new Bacon.End());
-            });
-            return function unsubscribe() {
-                broker.disconnect();
-            };
-        }).endOnError();
-        var outgoing = new Bacon.Bus();
-
-        events.onEnd(function() {
-            outgoing.end();
-        });
-
-        function connect(id, options) {
-            var conn = broker.connect(id, options);
-            var peer = new Peer(self, conn);
-            outgoing.push({
-                type:   'connection',
-                dir:    'outgoing',
-                peer:   peer,
-                broker: self
-            });
-            return peer;
-        }
-
-        function disconnect() {
-            broker.disconnect();
-            outgoing.end();
-        }
-
-        return _.assign(self, {
-            connect:    connect,
-            disconnect: disconnect,
-            events:     Bacon.mergeAll(events, outgoing),
-            info:       options
-        });
-    }
-
-    return {
-        Events:     Event,
-        connect:    connect,
-        disconnect: disconnect
-    };
+var Event = data({
+    connection: ['peer', 'broker'],
+    open:       ['broker'],
+    close:      ['broker']
 });
+
+function connect(idSelf, options) {
+    var broker = new PeerJs(idSelf, options);
+    var res    = {
+        conn: broker
+    };
+    res.events = events(res);
+    assign(res, options);
+    return Object.freeze(res);
+}
+
+// :: bitstar/broker -> ()
+function disconnect(broker) {
+    // TODO: Does 'close' event fire after this?
+    broker.conn.disconnect();
+}
+
+// :: bitstar/broker -> Bacon.EventStream
+function events(broker) {
+    var conn = broker.conn;
+    var evts = new EventStream(subscriber => {
+        subscriber(new Next(() => Event.connection(broker)));
+
+        conn.on('connection', conn => {
+            subscriber(new Next(() => Event.peerConnection(broker, conn)));
+        });
+        conn.on('open', () => {
+            subscriber(new Next(() => Event.open(broker)));
+        });
+        conn.on('error', err => {
+            subscriber(new Bacon.Error(err));
+        });
+        conn.on('close', () => {
+            subscriber(new Next(() => Event.close(broker)));
+            subscriber(new Bacon.End());
+        });
+        return function unsubscribe() {
+            conn.disconnect();
+        };
+    }).endOnError();
+    return evts;
+}

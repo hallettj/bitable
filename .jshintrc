@@ -1,13 +1,9 @@
 {
-    "browser": true,
+    "node": true,
     "laxcomma": true,
     "undef": true,
     "unused": true,
     "latedef": "nofunc",
-    "strict": true,
-
     "predef": [
-        "crypto",
-        "define"
     ]
 }

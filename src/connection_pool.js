@@ -1,93 +1,74 @@
-define('bitstar/connection_pool', [
-    './broker_pool',
-    './peer_connection',
-    './message',
-    './functional_utils',
-    'lodash',
-    'peerjs',
-    'when/when',
-    'when/timed',
-    'Bacon'
-], function(BrokerPool, PeerConnection, M, F, _, Peer, when, t, Bacon) {
-    'use strict';
+import BrokerPool           from './broker_pool';
+import PeerConnection       from './peer_connection';
+import { data, match }      from './functional_utils';
+import { compose, partial } from 'lodash';
+import { never }            from 'Bacon';
 
-    /** event types **/
+export {
+    InputEvent,
+    create
+};
 
-    var InputEvent = F.data({
-        connectTo:      ['peerInfo'],
-        disconnectFrom: ['peer'],
-        brokerEvent:    ['event']
-    });
+/** event types **/
 
-    /** implementation **/
-
-    function create(idSelf, inputs) {
-        var brokerInputs = translateInputs(inputs);
-
-        var brokerPool = _.compose(
-            _.partial(BrokerPool.removeUnused, [primary], 30000),
-            BrokerPool.removeOnClose
-        )(BrokerPool.create(idSelf, brokerInputs));
-
-        var events       = peerEvents(idSelf, brokerPool);
-        return Object.freeze({
-            events: events
-        });
-    }
-
-    function translateInputs(inputs) {
-        return inputs.flatMap(F.match(InputEvent, {
-            connectTo: function(peerInfo) {
-                return BrokerPool.InputEvents.connectTo(
-                    getBrokerInfo(peerInfo)
-                );
-            },
-            disconnectFrom: function(peer) {
-                // Nothing to do from the broker pool side.
-                return Bacon.never();
-            },
-            brokerEvent: function(event) {
-                return event;
-            }
-        }));
-    }
-
-    function peerEvents(idSelf, brokers, inputs) {
-        return inputs.flatMap(F.match(InputEvent, {
-            connectTo: function(peerInfo) {
-                return connectToPeer(brokers, peerInfo);
-
-                // return brokers.take(1).flatMap(function(bs) {
-                //     return connectToPeer(bs, peerInfo);
-                // });
-            },
-            disconnectFrom: function(peer) {
-            }
-        }));
-            
-    }
-
-    // TODO: Can this be idempotent?
-    function connectToPeer(brokers, peerInfo) {
-        var brokerInfo = getBrokerInfo(peerInfo);
-        return brokers
-        .filter(function(bs) {
-            return BrokerPool.has(bs, brokerInfo);
-        })
-        .take(1)
-        .flatMap(function(bs) {
-            var broker = BrokerPool.get(bs, brokerInfo);
-            var conn   = PeerConnection.create(broker, peerInfo);
-            return conn.events;
-        });
-    }
-
-    function getBrokerInfo(peerInfo) {
-        // TODO
-        return peerInfo;
-    }
-
-    return {
-        create: create
-    };
+var InputEvent = data({
+    connectTo:      ['peerInfo'],
+    disconnectFrom: ['peer'],
+    brokerEvent:    ['event']
 });
+
+/** implementation **/
+
+function create(idSelf, inputs) {
+    var brokerInputs = translateInputs(inputs);
+
+    var brokerPool = compose(
+        partial(BrokerPool.removeUnused, [primary], 30000),
+        BrokerPool.removeOnClose
+    )(BrokerPool.create(idSelf, brokerInputs));
+
+    var events = peerEvents(idSelf, brokerPool);
+    return Object.freeze({
+        events: events
+    });
+}
+
+function translateInputs(inputs) {
+    return inputs.flatMap(match(InputEvent, {
+        connectTo:      peerInfo => BrokerPool.InputEvent.connectTo(getBrokerInfo(peerInfo)),
+        disconnectFrom: peer     => never(),  // Nothing to do from the broker pool side.
+        brokerEvent:    event    => event
+    }));
+}
+
+function peerEvents(idSelf, brokers, inputs) {
+    return inputs.flatMap(match(InputEvent, {
+        connectTo: peerInfo => connectToPeer(brokers, peerInfo),
+
+        // return brokers.take(1).flatMap(function(bs) {
+        //     return connectToPeer(bs, peerInfo);
+        // });
+
+        disconnectFrom: peer => { /* TODO */ }
+    }));
+}
+
+// TODO: Can this be idempotent?
+function connectToPeer(brokers, peerInfo) {
+    var brokerInfo = getBrokerInfo(peerInfo);
+    return brokers
+    .filter(
+        bs => BrokerPool.has(bs, brokerInfo)
+    )
+    .take(1)
+    .flatMap(bs => {
+        var broker = BrokerPool.get(bs, brokerInfo);
+        var conn   = PeerConnection.create(broker, peerInfo);
+        return conn.events;
+    });
+}
+
+function getBrokerInfo(peerInfo) {
+    // TODO
+    return peerInfo;
+}

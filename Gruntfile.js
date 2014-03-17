@@ -1,3 +1,5 @@
+var fs = require('fs');
+
 /*global module:false*/
 module.exports = function(grunt) {
   'use strict';
@@ -32,23 +34,13 @@ module.exports = function(grunt) {
       }
     },
     jshint: {
-      options: {
-        browser: true,
-        laxcomma: true,
-        undef: true,
-        unused: true,
-        latedef: "nofunc",
-        strict: true,
-        predef: [
-            "crypto",
-            "define"
-        ]
-      },
       gruntfile: {
-        src: 'Gruntfile.js'
+        src: 'Gruntfile.js',
+        options: JSON.parse(fs.readFileSync('.jshintrc')),
       },
       src_test: {
-        src: ['src/**/*.js', 'test/**/*.js']
+        src: ['src/**/*.js', 'test/**/*.js'],
+        options: JSON.parse(fs.readFileSync('src/.jshintrc')),
       }
     },
     qunit: {
