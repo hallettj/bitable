@@ -1,6 +1,10 @@
 import Broker                  from './broker';
 import { data, match, modify } from './functional_utils';
-import { fromArray, mergeAll } from 'Bacon';
+import Bacon                   from 'Bacon';
+import { fromArray, mergeAll, never } from 'Bacon';
+import bilby                   from 'bilby';
+import { bind, constant, flatMap, map, pure, lift } from 'bilby';
+import StateT                  from 'stateT';
 import mori                    from 'mori';
 import {
     assoc,
@@ -9,7 +13,6 @@ import {
     has_key,
     keys,
     into_array,
-    map,
     vector,
     set,
     union,
@@ -21,8 +24,9 @@ export {
     create,
     removeOnClose,
     removeUnused,
-    get,
-    has
+    getBroker,
+    putBroker,
+    hasBroker
 };
 
 /** event types **/
@@ -47,10 +51,9 @@ var Change = data({
 //     events:  Bacon.EventStream<Broker.Event>
 // }
 
-// :: (bitstar/id.Id, Bacon.EventStream<InputEvent>) -> BrokerPool
+// :: (./id.Id, Bacon.EventStream<InputEvent>) -> BrokerPool
 function create(idSelf, inputs) {
-    var brokers = brokersProperty(idSelf, inputs);
-    var events  = brokerEvents(brokers);
+    var [brokers, events] = brokersPropertyAndEvents(brokerEventsWithState(idSelf, inputs));
     return Object.freeze({
         brokers: brokers,
         events:  events
@@ -58,13 +61,19 @@ function create(idSelf, inputs) {
 }
 
 // :: (hash_map<BrokerKey, Broker>, brokerInfo) -> (Broker | falsy)
-function get(brokers, brokerInfo) {
+function getBroker(brokers, brokerInfo) {
     var key = keyFor(brokerInfo);
     return mori.get(brokers, key);
 }
 
+// :: (hash_map<BrokerKey, Broker>, brokerInfo, Broker) -> hash_map<BrokerKey, Broker>
+function putBroker(brokers, brokerInfo, broker) {
+    var key = keyFor(brokerInfo);
+    return assoc(brokers, key, broker);
+}
+
 // :: (hash_map<BrokerKey, Broker>, brokerInfo) -> boolean
-function has(brokers, brokerInfo) {
+function hasBroker(brokers, brokerInfo) {
     var key = keyFor(brokerInfo);
     return has_key(brokers, key);
 }
@@ -128,26 +137,55 @@ function removeUnused(exceptions, timeout, pool) {
 //     };
 // }
 
-// :: (bitstar/id, Bacon.EventStream<InputEvent>) -> Bacon.Property<hash_map<BrokerKey, Broker>>
-function brokersProperty(idSelf, inputs) {
-    return inputs.scan(hash_map(), (brokers, event) => match(InputEvent, {
-        connectTo: brokerInfo => {
-            var key, broker;
-            if (has(brokers, brokerInfo)) {
-                return brokers;
+var get    = bind(StateT.get)(Bacon);
+var put    = bind(StateT.put)(Bacon);
+var modify = bind(StateT.modify)(Bacon);
+var pure   = bind(StateT.pure)([StateT.StateT, Bacon]);
+function sequence_(...actions) {
+    if (actions.length <= 1) {
+        return actions[0];
+    }
+    else {
+        return flatMap(actions[0], constant(sequence_(actions.slice(1))));
+    }
+}
+
+// :: (./id, Bacon.EventStream<InputEvent>) -> Bacon.Property<hash_map<BrokerKey, Broker>>
+function brokersPropertyAndEvents(eventsWithState) {
+    // eventsWithState = brokerEventsWithState(idSelf, inputs);
+    var combined = StateT.runStateT(eventsWithState, hash_map());
+    return [
+        // TODO: Listen to events stream to remove stale brokers.
+        combined.map('.state').toProperty(hash_map()),
+        combined.map('.value')
+    ];
+}
+
+// (./id, Bacon.EventStream<InputEvent>) -> StateT<hash_map<BrokerKey, Broker>, Bacon.EventStream<Broker.Event>>
+function brokerEventsWithState(idSelf, inputs) {
+    return flatMap(lift(StateT, inputs), match(InputEvent, {
+        connectTo: brokerInfo => flatMap(get(), brokers => {
+            var broker;
+            if (hasBroker(brokers, brokerInfo)) {
+                return lift(never());
             }
             else {
-                key    = keyFor(brokerInfo);
                 broker = Broker.connect(idSelf, brokerInfo);
-                return assoc(brokers, key, broker);
+                return sequence_(
+                    put(putBroker(brokers, brokerInfo, broker)),
+                    lift(broker.events)
+                );
             }
-        },
+        }),
         disconnectFrom: broker => {
             var key = keyFor(broker);  // TODO: broker vs. brokerInfo
             Broker.disconnect(broker);
-            return dissoc(brokers, key);
+            return sequence_(
+                modify(brokers => dissoc(brokers, key)),
+                lift(never())
+            );
         }
-    })(event));
+    }));
 }
 
 // :: Bacon.Property<hash_map<BrokerKey, Broker>> -> Bacon.EventStream<Broker.Event>
@@ -191,7 +229,7 @@ function changes(brokersProp) {
             removed: getBrokers(prev,    removedKeys)
         });
         function getBrokers(bs, keys) {
-            return into_array(map(key => mori.get(bs, key), keys));
+            return into_array(mori.map(key => mori.get(bs, key), keys));
         }
     })
     .flatMap(cs => {
