@@ -53,7 +53,9 @@ var Change = data({
 
 // :: (./id.Id, Bacon.EventStream<InputEvent>) -> BrokerPool
 function create(idSelf, inputs) {
-    var [brokers, events] = brokersPropertyAndEvents(brokerEventsWithState(idSelf, inputs));
+    var [brokers, events] = brokersPropertyAndEvents(
+        brokerEventsWithState(idSelf, inputs)
+    );
     return Object.freeze({
         brokers: brokers,
         events:  events
